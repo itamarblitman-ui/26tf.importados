@@ -81,7 +81,11 @@ Las *Photorealistic 3D Tiles* de Google se pueden usar de dos formas:
 | C · 1 · 2 · 3 | Cambiar cámara · cabina · externa · torre |
 | Mouse | Arrastrar: mirar/orbitar · rueda: zoom · doble clic: centrar |
 | Shift + flechas | Mirar alrededor |
-| P · R · H · F10/? | Pausa · reiniciar · ocultar datos · ayuda |
+| I | Tablero de instrumentos on/off (en cabina se ve por defecto) |
+| H · Shift+H | HUD · barra de datos superior |
+| [ / ] | Ajuste del altímetro (ventanilla de Kollsman, hPa) |
+| O | Sonido on/off (se activa con la primera tecla o clic) |
+| P · R · F10/? | Pausa · reiniciar · ayuda |
 
 **Joystick / gamepad** (Gamepad API, se detecta solo al tocar un botón): stick izquierdo =
 alabeo/cabeceo, gatillos = timón, stick derecho vertical = acelerador, A = frenos, B/X = flaps,
@@ -113,7 +117,9 @@ flight-sim/
 │  ├─ app/            FlightSession (orquestador), PhysicsClient (interpolación), protocolo de mensajes
 │  ├─ world/          Cesium: globo/LOD, aeropuertos, sonda de suelo, modelo del avión, cámaras
 │  ├─ input/          teclado, Gamepad API, fusión de entradas
-│  └─ ui/             interfaz superpuesta
+│  ├─ instruments/    modelo de instrumentos (retardos, altímetro barométrico, giróscopos) y dibujo en Canvas
+│  ├─ audio/          motor, hélice, viento, rodadura y bocina de pérdida sintetizados con Web Audio
+│  └─ ui/             interfaz superpuesta y HUD
 ├─ public/aircraft/   una aeronave = un JSON (masa, inercias, curvas, motor, tren…)
 ├─ public/models/     glTF generados por scripts/build-models.ts
 ├─ public/data/       aeropuertos (OurAirports) compactados por scripts/build-airports.ts
@@ -141,7 +147,24 @@ Incluye: atmósfera ISA, geodesia, motor y hélice, vuelo nivelado compensado (l
 estable 60 s), amortiguamiento de la dinámica longitudinal, pérdida (CL cae superado el ángulo
 crítico; en vuelo, con palanca atrás y motor reducido, entra en pérdida y baja la nariz) y
 recuperación, tren de aterrizaje (reposo estable, carrera de despegue, frenado, dirección de rueda de
-nariz, roce de cola, aterrizaje duro).
+nariz, roce de cola, aterrizaje duro) e instrumentos (altímetro y ventanilla de Kollsman, retardo del
+variómetro, bola del coordinador, giróscopos sin vacío).
+
+## Instrumentos y sonido
+
+- **Tablero** (Canvas 2D, redibujado a 30 Hz con esferas pre-renderizadas): anemómetro con arcos
+  blanco/verde/amarillo y línea roja tomados del JSON del avión, horizonte artificial, altímetro de
+  tres agujas con ventanilla de Kollsman, coordinador de virajes con bola, indicador de rumbo y
+  variómetro; más tacómetro y un recuadro de acelerador/flaps/compensador/frenos.
+- Los instrumentos no muestran la física "cruda": el variómetro tiene retardo, el altímetro es
+  barométrico (si cambia el QNH y no lo ajustás, marca mal) y los giróscopos dependen de la bomba de
+  vacío del motor: con el motor detenido se van degradando.
+- **HUD** (H): cintas de velocidad y altitud, rumbo, V/S y G; en cabina, horizonte, escalera de
+  cabeceo y vector de trayectoria conformes al campo visual.
+- **Sonido**: todo sintetizado (sin grabaciones). Explosiones del motor de 4 cilindros según RPM,
+  paso de pala de la hélice, viento según la velocidad, rodadura en pista y bocina de pérdida
+  (suena ~3° antes del ángulo crítico). En cabina el sonido llega filtrado; afuera se atenúa con la
+  distancia.
 
 ## Regenerar datos y modelos
 
@@ -160,6 +183,6 @@ npm run build:airports   # descarga OurAirports y genera public/data/airports.js
 ## Estado
 
 - [x] **Fase 1** — núcleo jugable: globo, pista real, avioneta propia, física 6DOF, controles, cámaras.
-- [ ] Fase 2 — cabina e instrumentos, HUD, sonido.
+- [x] **Fase 2** — seis instrumentos básicos + tacómetro en Canvas, HUD conforme, sonido sintetizado.
 - [ ] Fase 3 — hora del día, clima, selector de aeropuertos, pantalla de accidente.
 - [ ] Fase 4 — piloto automático, menú, bimotor.

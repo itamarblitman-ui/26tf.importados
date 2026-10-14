@@ -127,6 +127,8 @@ export interface AircraftConfig {
     maxTouchdownSpeed: number;
     /** Velocidad nunca exceder (IAS m/s). */
     vne: number;
+    /** Velocidad máxima estructural de crucero (IAS m/s); por defecto 0,79·Vne. */
+    vno?: number;
     /** Velocidad de pérdida limpia aprox (IAS m/s). */
     vs: number;
     /** Velocidad de rotación (IAS m/s). */

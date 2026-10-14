@@ -4,6 +4,7 @@ import { Keyboard } from './Keyboard';
 
 export type AppAction =
   | 'camera' | 'cameraCockpit' | 'cameraOrbit' | 'cameraTower' | 'pause' | 'reset' | 'hud' | 'help'
+  | 'panel' | 'strip' | 'sound' | 'kollsmanUp' | 'kollsmanDown'
   | 'lookUp' | 'lookDown' | 'lookLeft' | 'lookRight';
 
 const approach = (v: number, target: number, rate: number, dt: number) => {
@@ -93,6 +94,11 @@ export class InputManager {
         case 'KeyP': case 'Pause': actions.push('pause'); break;
         case 'KeyR': actions.push('reset'); break;
         case 'KeyH': actions.push('hud'); break;
+        case 'Shift+KeyH': actions.push('strip'); break;
+        case 'KeyI': actions.push('panel'); break;
+        case 'KeyO': actions.push('sound'); break;
+        case 'BracketRight': actions.push('kollsmanUp'); break;
+        case 'BracketLeft': actions.push('kollsmanDown'); break;
         case 'F10': case 'Slash': case 'Shift+Slash': actions.push('help'); break;
       }
     }

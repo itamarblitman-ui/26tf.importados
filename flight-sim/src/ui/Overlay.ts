@@ -32,7 +32,10 @@ export const HELP_HTML = `
 <tr><td>Shift + flechas</td><td>Mirar alrededor</td></tr>
 <tr><td>P</td><td>Pausa</td></tr>
 <tr><td>R</td><td>Reiniciar en la cabecera</td></tr>
-<tr><td>H</td><td>Mostrar / ocultar indicadores</td></tr>
+<tr><td>I</td><td>Tablero de instrumentos (on/off)</td></tr>
+<tr><td>H · Shift+H</td><td>HUD · barra de datos superior</td></tr>
+<tr><td>[ / ]</td><td>Ajuste del altímetro (hPa)</td></tr>
+<tr><td>O</td><td>Sonido on/off</td></tr>
 <tr><td>F10 o ?</td><td>Esta ayuda</td></tr>
 <tr><th colspan="2">Joystick / gamepad</th></tr>
 <tr><td>Stick izq.</td><td>Alabeo y cabeceo</td></tr>

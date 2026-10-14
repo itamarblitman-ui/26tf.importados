@@ -43,6 +43,14 @@ export class Cameras {
     canvas.addEventListener('dblclick', () => this.recenter());
   }
 
+  /** Desvío actual de la mirada en la cabina (rad). */
+  get lookAngles() { return { ...this.look }; }
+
+  get verticalFov(): number {
+    const f = this.scene.camera.frustum as Cesium.PerspectiveFrustum;
+    return f.fovy ?? 60 * DEG;
+  }
+
   setTowerLocation(lat: number, lon: number, height: number) {
     this.towerPos = Cesium.Cartesian3.fromDegrees(lon, lat, height);
   }

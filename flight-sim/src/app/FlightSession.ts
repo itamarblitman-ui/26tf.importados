@@ -2,7 +2,10 @@ import * as Cesium from 'cesium';
 import { validateAircraftConfig, type AircraftConfig } from '../physics/AircraftConfig';
 import type { Snapshot } from '../physics/snapshot';
 import { defaultEnvironment, type EnvironmentSettings, type InitialConditions } from '../physics/types';
+import { EngineSound } from '../audio/EngineSound';
 import { InputManager } from '../input/InputManager';
+import { Panel } from '../instruments/Panel';
+import { Hud } from '../ui/Hud';
 import { Overlay } from '../ui/Overlay';
 import { AircraftEntity } from '../world/AircraftEntity';
 import { findAirport, lineUpPoint, loadAirports, mainRunway, type Airport, type Runway } from '../world/airports';
@@ -45,6 +48,11 @@ export class FlightSession {
   runway!: Runway;
   initial!: InitialConditions;
   env: EnvironmentSettings = defaultEnvironment();
+  panel!: Panel;
+  hud!: Hud;
+  sound = new EngineSound();
+  /** Preferencia de tablero por tipo de vista */
+  private panelPref = { cockpit: true, external: false };
   paused = false;
   private lastFrame = performance.now();
   private lastProbe = 0;
@@ -110,7 +118,12 @@ export class FlightSession {
       mid.lon + (Math.sin(side) * offset) / (111_320 * Math.cos((mid.lat * Math.PI) / 180)),
       height + 30,
     );
+    this.panel = new Panel(this.container, cfg);
+    this.hud = new Hud(this.container);
+    this.sound.stallWarnAlpha = ((cfg.aero.stallAlphaDeg - 3) * Math.PI) / 180;
+    this.cameras.onModeChange = () => this.applyPanelLayout();
     this.cameras.setMode(this.opts.camera ?? 'orbit');
+    this.bindAudioUnlock();
 
     this.overlay.setLoading('Iniciando la física…');
     await this.physics.init(cfg, this.initial, this.env);
@@ -166,6 +179,23 @@ export class FlightSession {
     });
   }
 
+  private applyPanelLayout() {
+    const cockpit = this.cameras.mode === 'cockpit';
+    const show = cockpit ? this.panelPref.cockpit : this.panelPref.external;
+    this.panel.setLayout(show ? (cockpit ? 'cockpit' : 'compact') : 'hidden');
+  }
+
+  /** Los navegadores sólo permiten audio después de un gesto del usuario. */
+  private bindAudioUnlock() {
+    const unlock = () => {
+      void this.sound.start();
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('pointerdown', unlock);
+    };
+    window.addEventListener('keydown', unlock);
+    window.addEventListener('pointerdown', unlock);
+  }
+
   private bindVisibility() {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && !this.paused) this.togglePause();
@@ -211,6 +241,14 @@ export class FlightSession {
       if (g) this.physics.setGround(g);
     }
 
+    const cockpit = this.cameras.mode === 'cockpit';
+    this.panel.update(s, this.paused ? 0 : dt);
+    const lookNow = this.cameras.lookAngles;
+    this.hud.update(s, cockpit, this.cameras.verticalFov, lookNow.yaw, lookNow.pitch,
+      this.panel.layout === 'cockpit' ? this.panel.cockpitHeight : 0);
+    const camDist = Cesium.Cartesian3.distance(this.world.scene.camera.positionWC, this.aircraft.position);
+    this.sound.update(s, cockpit ? 'cockpit' : 'external', camDist, this.paused);
+
     if (now - this.lastUi > 80) {
       this.lastUi = now;
       this.overlay.update(s, this.cameras.mode, this.cfg.flaps.detents);
@@ -230,9 +268,26 @@ export class FlightSession {
       case 'cameraTower': this.cameras.setMode('tower'); break;
       case 'pause': this.togglePause(); break;
       case 'reset': this.reset(); break;
-      case 'hud': this.overlay.toggleStrip(); break;
+      case 'hud': this.hud.toggle(); break;
+      case 'strip': this.overlay.toggleStrip(); break;
+      case 'panel': {
+        const key = this.cameras.mode === 'cockpit' ? 'cockpit' : 'external';
+        this.panelPref[key] = !this.panelPref[key];
+        this.applyPanelLayout();
+        break;
+      }
+      case 'sound':
+        this.sound.setMuted(!this.sound.muted);
+        this.overlay.notify(this.sound.muted ? 'Sonido desactivado' : 'Sonido activado', 1200);
+        break;
+      case 'kollsmanUp': this.panel.model.adjustKollsman(1); this.notifyKollsman(); break;
+      case 'kollsmanDown': this.panel.model.adjustKollsman(-1); this.notifyKollsman(); break;
       case 'help': this.overlay.toggleHelp(); break;
     }
+  }
+
+  private notifyKollsman() {
+    this.overlay.notify(`Altímetro: ${this.panel.model.r.kollsman.toFixed(0)} hPa`, 1200);
   }
 
   get state(): Snapshot | null {
