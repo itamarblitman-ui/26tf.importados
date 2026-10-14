@@ -1,0 +1,165 @@
+# Cielo Abierto — simulador de vuelo para navegador
+
+Simulador de vuelo con terreno real del planeta (CesiumJS), física de vuelo de 6 grados de libertad
+propia y aeronaves de diseño original. Escrito en TypeScript + Vite.
+
+> Proyecto 100 % original: no usa nombres, logos, modelos ni assets de otros simuladores ni de
+> fabricantes reales. La avioneta **Hornero H-160** es un diseño genérico propio cuyo modelo 3D se
+> genera por código (`scripts/build-models.ts`).
+
+## Inicio rápido
+
+```bash
+cd flight-sim
+npm install
+cp .env.example .env      # y completá las claves (ver abajo)
+npm run dev               # http://localhost:5173
+```
+
+Sin claves el simulador igual arranca en **modo sin conexión**: globo con imagen satelital de baja
+resolución incluida en Cesium, sin relieve ni edificios. Sirve para probar la física.
+
+### Parámetros por URL (hasta que llegue el menú de la fase 4)
+
+| Parámetro  | Ejemplo                       | Descripción                                          |
+|------------|-------------------------------|------------------------------------------------------|
+| `airport`  | `SABE`, `SAEZ`, `AEP`         | Código OACI o IATA (base OurAirports)                |
+| `runway`   | `13`                          | Cabecera de inicio                                   |
+| `aircraft` | `hornero-h160`                | Archivo en `public/aircraft/`                        |
+| `scenery`  | `standard` · `photoreal` · `offline` | Terreno + satélite + edificios OSM · Google 3D Tiles · sin red |
+| `camera`   | `orbit` · `cockpit` · `tower` | Cámara inicial                                       |
+| `hora`     | `17:30`                       | Hora solar local (por defecto, la hora real)         |
+
+Ejemplo: `http://localhost:5173/?airport=SABE&runway=31&scenery=photoreal&hora=18:45`
+
+## Cómo conseguir las claves gratis
+
+Las claves se leen de `flight-sim/.env` (no se sube al repo). Vite expone `CESIUM_ION_TOKEN` y
+`GOOGLE_MAPS_KEY` al navegador gracias a `envPrefix` en `vite.config.ts`.
+
+### `CESIUM_ION_TOKEN` (necesaria para terreno y edificios)
+
+1. Creá una cuenta gratuita en <https://ion.cesium.com/signup> (plan Community, sin tarjeta).
+2. Entrá a **Access Tokens** → copiá el *Default Token* o creá uno nuevo con los permisos
+   `assets:read` y `geocode`.
+3. Pegalo en `.env`: `CESIUM_ION_TOKEN=eyJhbGciOi...`
+
+Con esto tenés **Cesium World Terrain** (relieve), imagen satelital **Bing Maps** y **Cesium OSM
+Buildings** (edificios). El plan gratuito alcanza de sobra para uso personal.
+
+### `GOOGLE_MAPS_KEY` (opcional, para `scenery=photoreal`)
+
+Las *Photorealistic 3D Tiles* de Google se pueden usar de dos formas:
+
+- **Sólo con Cesium ion**: si no definís `GOOGLE_MAPS_KEY`, se cargan a través de ion (asset
+  "Google Photorealistic 3D Tiles"; puede que tengas que agregarlo a tu cuenta desde *Asset Depot*).
+- **Con tu propia clave de Google**:
+  1. Entrá a <https://console.cloud.google.com/>, creá un proyecto y activá la facturación
+     (Google Maps Platform incluye un cupo mensual gratuito; las teselas 3D para uso personal
+     normalmente entran en él).
+  2. En **APIs y servicios → Biblioteca**, habilitá **Map Tiles API**.
+  3. En **Credenciales → Crear credenciales → Clave de API**.
+  4. Pegala en `.env`: `GOOGLE_MAPS_KEY=AIza...`
+
+> ⚠️ Toda clave usada desde el navegador queda visible en el código que se descarga. Restringila
+> por **referente HTTP** (por ejemplo `http://localhost:5173/*` y tu dominio) tanto en Cesium ion
+> como en Google Cloud.
+
+## Controles
+
+| Tecla | Acción |
+|---|---|
+| ↑ / ↓ | Picar / encabritar |
+| ← / → | Alabeo |
+| Q / E | Timón (dirige la rueda de nariz en tierra) |
+| F1 · F2 · F3 · F4 | Corte · reducir · aumentar · pleno acelerador (también RePág/AvPág y +/−) |
+| Inicio / Fin | Compensador picar / encabritar |
+| Z / X | Subir / bajar flaps |
+| B o Espacio | Frenos · `,` / `.` freno izquierdo / derecho · Shift+B freno de estacionamiento |
+| G | Tren (aviones retráctiles) |
+| M | Arrancar / detener el motor |
+| C · 1 · 2 · 3 | Cambiar cámara · cabina · externa · torre |
+| Mouse | Arrastrar: mirar/orbitar · rueda: zoom · doble clic: centrar |
+| Shift + flechas | Mirar alrededor |
+| P · R · H · F10/? | Pausa · reiniciar · ocultar datos · ayuda |
+
+**Joystick / gamepad** (Gamepad API, se detecta solo al tocar un botón): stick izquierdo =
+alabeo/cabeceo, gatillos = timón, stick derecho vertical = acelerador, A = frenos, B/X = flaps,
+Y = tren, LB/RB = compensador. En joysticks de vuelo (mapping no estándar): ejes 0/1 = palanca,
+eje 2 = acelerador, eje 3 o 5 = timón (twist).
+
+### Primer despegue
+
+1. Arrancás alineado en la cabecera 13 de Aeroparque con el compensador en posición de despegue.
+2. **F4** (pleno). Mantené el eje con **Q/E**: la hélice tiende a llevarte a la izquierda.
+3. A ~55 kt tirá suave (**↓**) hasta ver ~8° de nariz arriba y mantené: trepa a ~75 kt.
+4. Arriba, reducí a ~2300 RPM (F2) y compensá (Inicio/Fin) para volar sin presión en la palanca.
+
+## Arquitectura
+
+```
+flight-sim/
+├─ src/
+│  ├─ physics/        TypeScript puro (sin DOM ni Cesium): corre en un Web Worker y en los tests
+│  │  ├─ Simulation.ts      integrador 6DOF a 120 Hz, trimado, choques, re-anclado del marco local
+│  │  ├─ Aerodynamics.ts    CL/CD(α) con pérdida, derivadas de estabilidad, efecto suelo, soplado de hélice
+│  │  ├─ Propulsion.ts      motor a pistón (Gagg-Ferrar) + hélice de paso fijo (Ct/Cp vs J) con dinámica de RPM
+│  │  ├─ LandingGear.ts     resorte-amortiguador por pata, fricción, frenos diferenciales, rueda de nariz
+│  │  ├─ Atmosphere.ts      ISA hasta 20 km, ISA+ΔT
+│  │  ├─ Wind.ts            viento medio + ráfagas + turbulencia tipo Dryden (determinista)
+│  │  ├─ geodesy.ts         WGS84, ECEF, marcos NED
+│  │  ├─ snapshot.ts        layout binario del estado (Float64Array transferible)
+│  │  └─ worker.ts          bucle de paso fijo con acumulador
+│  ├─ app/            FlightSession (orquestador), PhysicsClient (interpolación), protocolo de mensajes
+│  ├─ world/          Cesium: globo/LOD, aeropuertos, sonda de suelo, modelo del avión, cámaras
+│  ├─ input/          teclado, Gamepad API, fusión de entradas
+│  └─ ui/             interfaz superpuesta
+├─ public/aircraft/   una aeronave = un JSON (masa, inercias, curvas, motor, tren…)
+├─ public/models/     glTF generados por scripts/build-models.ts
+├─ public/data/       aeropuertos (OurAirports) compactados por scripts/build-airports.ts
+└─ tests/physics/     tests unitarios del modelo de vuelo (Vitest)
+```
+
+**Flujo por frame**: el hilo principal lee teclado/joystick → envía `ControlInputs` al worker →
+el worker integra a 120 Hz fijos independientemente del framerate y publica el estado
+(`Float64Array` transferible, sin copias) → el hilo principal interpola entre los dos últimos
+estados para el instante de render y actualiza modelo, cámaras e interfaz. A ~15 Hz el hilo
+principal mide el suelo bajo el avión (terreno de Cesium o el plano exacto de la pista) y se lo
+pasa a la física.
+
+**Rendimiento**: física fuera del hilo de render, LOD de terreno y 3D Tiles con
+`maximumScreenSpaceError` ajustado, *foveated* y *dynamic SSE* (menos detalle en la periferia),
+caché de teselas acotada, FXAA en lugar de MSAA, interfaz actualizada a ~12 Hz.
+
+## Tests
+
+```bash
+npm test
+```
+
+Incluye: atmósfera ISA, geodesia, motor y hélice, vuelo nivelado compensado (la altitud se mantiene
+estable 60 s), amortiguamiento de la dinámica longitudinal, pérdida (CL cae superado el ángulo
+crítico; en vuelo, con palanca atrás y motor reducido, entra en pérdida y baja la nariz) y
+recuperación, tren de aterrizaje (reposo estable, carrera de despegue, frenado, dirección de rueda de
+nariz, roce de cola, aterrizaje duro).
+
+## Regenerar datos y modelos
+
+```bash
+npm run build:models     # public/models/*.glb
+npm run build:airports   # descarga OurAirports y genera public/data/airports.json
+```
+
+## Créditos y licencias de datos
+
+- Aeropuertos y pistas: [OurAirports](https://ourairports.com/data/) — dominio público.
+- Globo y terreno: [CesiumJS](https://cesium.com/) (Apache 2.0), Cesium World Terrain, imagen Bing
+  Maps y Cesium OSM Buildings (© OpenStreetMap contributors) vía Cesium ion; Google Photorealistic
+  3D Tiles (© Google). Los créditos se muestran en pantalla como exigen sus términos.
+
+## Estado
+
+- [x] **Fase 1** — núcleo jugable: globo, pista real, avioneta propia, física 6DOF, controles, cámaras.
+- [ ] Fase 2 — cabina e instrumentos, HUD, sonido.
+- [ ] Fase 3 — hora del día, clima, selector de aeropuertos, pantalla de accidente.
+- [ ] Fase 4 — piloto automático, menú, bimotor.
