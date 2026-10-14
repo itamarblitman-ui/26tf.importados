@@ -1,10 +1,11 @@
 import './style.css';
 import { FlightSession, type SessionOptions } from './app/FlightSession';
 import type { SceneryMode } from './world/Globe';
+import { WEATHER_PRESETS } from './app/weather';
 
 /**
  * Punto de entrada. En la fase 4 se agrega el menú inicial; por ahora los parámetros
- * se pueden pasar por URL: ?airport=SABE&runway=13&aircraft=hornero-h160&scenery=standard|photoreal|offline&hora=15:30
+ * se pueden pasar por URL: ?airport=SABE&runway=13&aircraft=hornero-h160&scenery=standard|photoreal|offline&hora=15:30&clima=Nublado
  */
 const params = new URLSearchParams(location.search);
 const opts: SessionOptions = {
@@ -14,6 +15,7 @@ const opts: SessionOptions = {
   scenery: (params.get('scenery') as SceneryMode) ?? 'standard',
   camera: (params.get('camera') as SessionOptions['camera']) ?? 'orbit',
   localHour: params.has('hora') ? parseHour(params.get('hora')!) : undefined,
+  weather: params.has('clima') ? WEATHER_PRESETS[params.get('clima')!] : undefined,
 };
 
 function parseHour(v: string): number | undefined {

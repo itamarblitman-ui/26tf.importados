@@ -78,3 +78,49 @@ kbd { font-family: ui-monospace, monospace; color: var(--amber); }
   .strip .item { min-width: 52px; }
   .strip .item b { font-size: 13px; }
 }
+
+.screen.crash .details { color: var(--muted); margin: 0; }
+.screen .buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+button.secondary { background: rgba(255,255,255,0.12); color: var(--text); }
+
+/* Panel de clima */
+.panel.weather {
+  top: 96px; right: 12px; left: auto; transform: none; width: min(320px, calc(100% - 24px));
+  max-height: calc(100% - 110px); padding: 12px 16px; font-size: 14px; z-index: 4;
+}
+.wp-head { display: flex; align-items: center; justify-content: space-between; }
+.wp-head h2 { margin: 0; font-size: 18px; }
+.close { background: transparent; color: var(--text); padding: 4px 8px; font-size: 16px; }
+.weather section { border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 0 4px; }
+.weather h3 { margin: 0 0 6px; font-size: 12px; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+.weather .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
+.weather input[type=range] { width: 100%; accent-color: var(--accent); }
+.weather select { font: inherit; background: #111821; color: var(--text); border: 1px solid #2c3845; border-radius: 4px; padding: 2px 4px; }
+.weather output { color: var(--amber); font-variant-numeric: tabular-nums; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets button { padding: 5px 9px; font-size: 13px; background: rgba(95,180,232,0.18); color: var(--text); }
+
+/* Selector de aeropuertos */
+.picker { position: absolute; inset: 0; z-index: 10; background: rgba(4,8,12,0.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.picker-box { background: #0f161e; border-radius: 12px; width: min(1100px, 100%); height: min(720px, 100%); display: flex; flex-direction: column; overflow: hidden; }
+.picker-head { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #1f2b37; }
+.picker-head h2 { margin: 0; font-size: 18px; white-space: nowrap; }
+.picker-head input { flex: 1; min-width: 0; font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid #2c3845; background: #0a1016; color: var(--text); }
+.picker-body { flex: 1; display: flex; min-height: 0; }
+.picker-map { flex: 1; position: relative; min-width: 0; cursor: grab; }
+.picker-map canvas { position: absolute; inset: 0; touch-action: none; }
+.picker-map .attrib { position: absolute; right: 4px; bottom: 2px; font-size: 10px; background: rgba(255,255,255,0.7); color: #222; padding: 1px 4px; border-radius: 3px; }
+.picker-side { width: 300px; border-left: 1px solid #1f2b37; display: flex; flex-direction: column; overflow: auto; }
+.picker-side .results button { display: block; width: 100%; text-align: left; background: transparent; color: var(--text); border-radius: 0; border-bottom: 1px solid #1a2530; padding: 8px 12px; font-weight: 400; }
+.picker-side .results button:hover { background: rgba(95,180,232,0.12); }
+.picker-side small { display: block; color: var(--muted); font-size: 12px; }
+.picker-side .info { padding: 12px; }
+.picker-side .info h3 { margin: 0 0 4px; }
+.picker-side .muted, .muted { color: var(--muted); }
+.rw-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rw-list .rw { text-align: left; }
+.rw-list .rw small { color: #0a2a40; }
+@media (max-width: 700px) {
+  .picker-body { flex-direction: column; }
+  .picker-side { width: auto; height: 40%; border-left: 0; border-top: 1px solid #1f2b37; }
+}

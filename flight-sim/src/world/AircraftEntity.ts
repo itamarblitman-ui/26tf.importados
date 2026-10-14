@@ -22,7 +22,41 @@ export class AircraftEntity {
   private modelMatrix = new Cesium.Matrix4();
   private enu = new Cesium.Matrix4();
 
+  private lights: Cesium.PointPrimitiveCollection | null = null;
+  private lightDefs: { p: Cesium.PointPrimitive; body: Cesium.Cartesian3; kind: 'nav' | 'strobe' | 'beacon' }[] = [];
+  private lightTime = 0;
+  /** Luces de navegación encendidas (de noche). Los estrobos y el faro anticolisión van siempre. */
+  navLightsOn = false;
+
   constructor(private scene: Cesium.Scene) {}
+
+  /** Crea las luces exteriores a partir de la configuración del avión. */
+  setupLights(cfg?: { navLeft: number[]; navRight: number[]; tail: number[]; beacon: number[] }) {
+    if (!cfg) return;
+    this.lights = this.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+    const add = (pos: number[], color: Cesium.Color, kind: 'nav' | 'strobe' | 'beacon', size = 7) => {
+      const p = this.lights!.add({ color, pixelSize: size, outlineWidth: 0, scaleByDistance: new Cesium.NearFarScalar(30, 1.6, 4000, 0.5) });
+      this.lightDefs.push({ p, body: new Cesium.Cartesian3(pos[0], pos[1], pos[2]), kind });
+    };
+    add(cfg.navLeft, Cesium.Color.fromCssColorString('#ff2a1a'), 'nav');
+    add(cfg.navRight, Cesium.Color.fromCssColorString('#1aff5a'), 'nav');
+    add(cfg.tail, Cesium.Color.WHITE, 'nav', 6);
+    add(cfg.navLeft, Cesium.Color.WHITE, 'strobe', 10);
+    add(cfg.navRight, Cesium.Color.WHITE, 'strobe', 10);
+    add(cfg.beacon, Cesium.Color.fromCssColorString('#ff3020'), 'beacon', 8);
+  }
+
+  private updateLights(dt: number) {
+    if (!this.lights) return;
+    this.lightTime += dt;
+    const strobe = (this.lightTime % 1.2) < 0.06 || ((this.lightTime % 1.2) > 0.14 && (this.lightTime % 1.2) < 0.2);
+    const beacon = (this.lightTime % 1.0) < 0.12;
+    const visibleModel = this.model?.show ?? true;
+    for (const l of this.lightDefs) {
+      l.p.position = Cesium.Matrix4.multiplyByPoint(this.bodyToFixed, l.body, new Cesium.Cartesian3());
+      l.p.show = visibleModel && (l.kind === 'nav' ? this.navLightsOn : l.kind === 'strobe' ? strobe : beacon);
+    }
+  }
 
   async load(url: string): Promise<void> {
     this.model = await Cesium.Model.fromGltfAsync({
@@ -46,6 +80,13 @@ export class AircraftEntity {
         if (node) this.originals[n] = Cesium.Matrix4.clone(node.originalMatrix);
       } catch { /* nodo opcional */ }
     }
+  }
+
+  /** Ajusta la luz que recibe el modelo según la hora (0 = noche cerrada, 1 = día). */
+  setDaylight(k: number) {
+    if (!this.model) return;
+    this.model.lightColor = new Cesium.Cartesian3(k * 1.1, k * 1.08, k * 1.0);
+    this.model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(k, k);
   }
 
   set visible(v: boolean) { if (this.model) this.model.show = v; }
@@ -90,6 +131,7 @@ export class AircraftEntity {
     );
     Cesium.Matrix4.multiply(this.enu, Cesium.Matrix4.fromRotationTranslation(modelRot), this.modelMatrix);
     this.model.modelMatrix = this.modelMatrix;
+    this.updateLights(dt);
 
     // Superficies (rotaciones en ejes glTF; ver build-models.ts)
     const rotX = Cesium.Matrix3.fromRotationX, rotY = Cesium.Matrix3.fromRotationY, rotZ = Cesium.Matrix3.fromRotationZ;

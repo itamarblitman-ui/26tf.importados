@@ -29,6 +29,7 @@ resolución incluida en Cesium, sin relieve ni edificios. Sirve para probar la f
 | `scenery`  | `standard` · `photoreal` · `offline` | Terreno + satélite + edificios OSM · Google 3D Tiles · sin red |
 | `camera`   | `orbit` · `cockpit` · `tower` | Cámara inicial                                       |
 | `hora`     | `17:30`                       | Hora solar local (por defecto, la hora real)         |
+| `clima`    | `Despejado`, `Buen tiempo`, `Ventoso con ráfagas`, `Nublado`, `Niebla`, `Tormenta` | Ajuste rápido de clima |
 
 Ejemplo: `http://localhost:5173/?airport=SABE&runway=31&scenery=photoreal&hora=18:45`
 
@@ -85,6 +86,8 @@ Las *Photorealistic 3D Tiles* de Google se pueden usar de dos formas:
 | H · Shift+H | HUD · barra de datos superior |
 | [ / ] | Ajuste del altímetro (ventanilla de Kollsman, hPa) |
 | O | Sonido on/off (se activa con la primera tecla o clic) |
+| T | Panel de hora y clima |
+| A | Elegir aeropuerto y cabecera en el mapa |
 | P · R · F10/? | Pausa · reiniciar · ayuda |
 
 **Joystick / gamepad** (Gamepad API, se detecta solo al tocar un botón): stick izquierdo =
@@ -137,6 +140,32 @@ pasa a la física.
 `maximumScreenSpaceError` ajustado, *foveated* y *dynamic SSE* (menos detalle en la periferia),
 caché de teselas acotada, FXAA en lugar de MSAA, interfaz actualizada a ~12 Hz.
 
+## Mundo vivo (hora y clima)
+
+- **Hora**: por defecto la real; con **T** se fija la hora solar local del lugar. Sol, iluminación del
+  terreno y del avión, sombras (cascada cercana, 1,5 km), luces de ciudades de noche (modo
+  estándar) y luces de navegación/estrobos del avión.
+- **Viento** (físico, no sólo visual): dirección, velocidad, ráfagas y turbulencia tipo Dryden, con
+  perfil de capa límite (menos viento junto al suelo). Desvía la trayectoria, afecta el carreteo y
+  los aterrizajes con viento cruzado.
+- **Nubes**: capas por cobertura (pocas → cubierto) y altura de base, generadas de forma
+  determinista alrededor del avión. Dentro de una capa fragmentada o cubierta la visibilidad cae a
+  ~100 m.
+- **Visibilidad/niebla**: post-proceso propio sobre el buffer de profundidad (ley de Koschmieder),
+  con el color de la niebla según la altura del sol.
+- **Atmósfera**: desvío de temperatura ISA (los días calurosos alargan el despegue) y QNH (si no
+  ajustás el altímetro con `[`/`]`, marca mal).
+- **Aeropuertos** (**A**): mapa de OpenStreetMap con los ~11 000 aeropuertos con pistas de
+  OurAirports; buscar por OACI, IATA, nombre o ciudad, y elegir cabecera. El traslado es instantáneo
+  (sin recargar).
+- **Accidentes**: impacto contra el terreno o edificios de la estructura, aterrizaje duro (> 3,5 m/s),
+  exceso de velocidad o de G, y **amerizaje** (detectado con la máscara de agua de Cesium World
+  Terrain). La pantalla muestra causa, velocidad, régimen vertical y G, con opciones de reiniciar o
+  elegir otro aeropuerto.
+
+> El mapa usa teselas de `tile.openstreetmap.org`, pensadas para uso liviano; para un despliegue
+> público conviene un proveedor propio de teselas.
+
 ## Tests
 
 ```bash
@@ -148,7 +177,9 @@ estable 60 s), amortiguamiento de la dinámica longitudinal, pérdida (CL cae su
 crítico; en vuelo, con palanca atrás y motor reducido, entra en pérdida y baja la nariz) y
 recuperación, tren de aterrizaje (reposo estable, carrera de despegue, frenado, dirección de rueda de
 nariz, roce de cola, aterrizaje duro) e instrumentos (altímetro y ventanilla de Kollsman, retardo del
-variómetro, bola del coordinador, giróscopos sin vacío).
+variómetro, bola del coordinador, giróscopos sin vacío), clima (dirección del viento, capa límite,
+ráfagas, deriva con viento cruzado, efecto de la temperatura en el despegue, amerizaje), posición del
+sol y campo de nubes determinista.
 
 ## Instrumentos y sonido
 
@@ -184,5 +215,5 @@ npm run build:airports   # descarga OurAirports y genera public/data/airports.js
 
 - [x] **Fase 1** — núcleo jugable: globo, pista real, avioneta propia, física 6DOF, controles, cámaras.
 - [x] **Fase 2** — seis instrumentos básicos + tacómetro en Canvas, HUD conforme, sonido sintetizado.
-- [ ] Fase 3 — hora del día, clima, selector de aeropuertos, pantalla de accidente.
+- [x] **Fase 3** — hora del día con sol y sombras, clima (viento, ráfagas, turbulencia, nubes, niebla), selector de aeropuertos en mapa, agua y pantalla de accidente.
 - [ ] Fase 4 — piloto automático, menú, bimotor.

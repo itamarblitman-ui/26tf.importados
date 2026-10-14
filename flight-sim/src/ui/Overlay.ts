@@ -36,6 +36,8 @@ export const HELP_HTML = `
 <tr><td>H · Shift+H</td><td>HUD · barra de datos superior</td></tr>
 <tr><td>[ / ]</td><td>Ajuste del altímetro (hPa)</td></tr>
 <tr><td>O</td><td>Sonido on/off</td></tr>
+<tr><td>T</td><td>Hora y clima</td></tr>
+<tr><td>A</td><td>Elegir aeropuerto en el mapa</td></tr>
 <tr><td>F10 o ?</td><td>Esta ayuda</td></tr>
 <tr><th colspan="2">Joystick / gamepad</th></tr>
 <tr><td>Stick izq.</td><td>Alabeo y cabeceo</td></tr>
@@ -62,7 +64,8 @@ export class Overlay {
     this.strip = el(`<div class="strip"></div>`);
     this.warn = el(`<div class="warn"></div>`);
     this.loading = el(`<div class="screen loading"><div class="spinner"></div><div class="msg">Cargando…</div></div>`);
-    this.crash = el(`<div class="screen crash hidden"><h1>Accidente</h1><p class="reason"></p><button>Reiniciar (R)</button></div>`);
+    this.crash = el(`<div class="screen crash hidden"><h1>Accidente</h1><p class="reason"></p><p class="details"></p>
+      <div class="buttons"><button class="restart">Reiniciar en la pista (R)</button><button class="pick secondary">Elegir otro aeropuerto (A)</button></div></div>`);
     this.pause = el(`<div class="banner hidden">PAUSA — P para continuar</div>`);
     this.help = el(`<div class="panel help hidden">${HELP_HTML}<button class="close">Cerrar</button></div>`);
     this.toast = el(`<div class="toast hidden"></div>`);
@@ -72,7 +75,11 @@ export class Overlay {
   }
 
   onRestart(cb: () => void) {
-    this.crash.querySelector('button')!.addEventListener('click', cb);
+    this.crash.querySelector('.restart')!.addEventListener('click', cb);
+  }
+
+  onPickAirport(cb: () => void) {
+    this.crash.querySelector('.pick')!.addEventListener('click', cb);
   }
 
   setLoading(msg: string | null) {
@@ -80,9 +87,13 @@ export class Overlay {
     if (msg) this.loading.querySelector('.msg')!.textContent = msg;
   }
 
-  showCrash(reason: number | null) {
+  showCrash(reason: number | null, impact?: { ias: number; vs: number; nz: number }) {
     this.crash.classList.toggle('hidden', reason === null);
-    if (reason !== null) this.crash.querySelector('.reason')!.textContent = crashReasonText[reason] ?? 'Accidente';
+    if (reason === null) return;
+    this.crash.querySelector('.reason')!.textContent = crashReasonText[reason] ?? 'Accidente';
+    this.crash.querySelector('.details')!.textContent = impact
+      ? `Velocidad ${Math.round(impact.ias * KT)} kt · vertical ${Math.round(impact.vs * FT * 60)} ft/min · ${impact.nz.toFixed(1)} G`
+      : '';
   }
 
   setPaused(p: boolean) { this.pause.classList.toggle('hidden', !p); }
@@ -101,7 +112,7 @@ export class Overlay {
     this.strip.classList.toggle('hidden', !this.stripVisible);
   }
 
-  update(s: Snapshot, camera: CameraMode, detents: number[]) {
+  update(s: Snapshot, camera: CameraMode, detents: number[], wind = '') {
     if (this.stripVisible) {
       const hdg = ((s.heading * 180) / Math.PI + 360) % 360;
       const item = (k: string, v: string, cls = '') => `<div class="item ${cls}"><span>${k}</span><b>${v}</b></div>`;
@@ -117,6 +128,7 @@ export class Overlay {
         item('FLAPS', `${Math.round(s.flapDeg)}°${Math.abs(s.flapDeg - flap) > 0.5 ? `→${flap}°` : ''}`),
         item('COMP', `${s.trim >= 0 ? '+' : ''}${(s.trim * 100).toFixed(0)}`),
         item('G', s.nz.toFixed(1)),
+        item('VIENTO', wind || '—'),
         item('FRENOS', s.parkingBrake ? 'ESTAC.' : s.brakeLeft > 0 || s.brakeRight > 0 ? 'SÍ' : '—', s.parkingBrake ? 'amber' : ''),
         item('CÁM', CAMERA_LABEL[camera]),
       ].join('');

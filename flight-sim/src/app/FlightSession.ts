@@ -6,6 +6,11 @@ import { EngineSound } from '../audio/EngineSound';
 import { InputManager } from '../input/InputManager';
 import { Panel } from '../instruments/Panel';
 import { Hud } from '../ui/Hud';
+import { AirportPicker } from '../ui/AirportPicker';
+import { WeatherPanel } from '../ui/WeatherPanel';
+import { Environment } from '../world/Environment';
+import { localSolarHour } from '../world/sun';
+import { defaultWeather, toPhysicsEnvironment, windText, type WeatherSettings } from './weather';
 import { Overlay } from '../ui/Overlay';
 import { AircraftEntity } from '../world/AircraftEntity';
 import { findAirport, lineUpPoint, loadAirports, mainRunway, type Airport, type Runway } from '../world/airports';
@@ -23,6 +28,7 @@ export interface SessionOptions {
   camera?: CameraMode;
   /** Hora solar local (0-24). Si no se indica, se usa la hora real. */
   localHour?: number;
+  weather?: Partial<WeatherSettings>;
 }
 
 export async function loadAircraftConfig(id: string): Promise<AircraftConfig> {
@@ -48,6 +54,12 @@ export class FlightSession {
   runway!: Runway;
   initial!: InitialConditions;
   env: EnvironmentSettings = defaultEnvironment();
+  airports: Airport[] = [];
+  environment!: Environment;
+  weatherPanel!: WeatherPanel;
+  picker!: AirportPicker;
+  weather: WeatherSettings = defaultWeather();
+  private relocating = false;
   panel!: Panel;
   hud!: Hud;
   sound = new EngineSound();
@@ -63,6 +75,7 @@ export class FlightSession {
   constructor(private container: HTMLElement, private opts: SessionOptions) {
     this.overlay = new Overlay(container);
     this.overlay.onRestart(() => this.reset());
+    this.overlay.onPickAirport(() => void this.openPicker());
     this.physics.onError = (m) => this.overlay.notify(`Error de física: ${m}`, 6000);
   }
 
@@ -77,47 +90,30 @@ export class FlightSession {
     if (this.world.mode !== this.opts.scenery) {
       this.overlay.notify('Sin CESIUM_ION_TOKEN: modo sin conexión (sin terreno ni edificios). Ver README.', 8000);
     }
-    this.world.viewer.clock.currentTime = Cesium.JulianDate.now();
-    this.world.viewer.clock.shouldAnimate = true;
 
     this.overlay.setLoading('Cargando aeropuertos y aeronave…');
     const [airports, cfg] = await Promise.all([loadAirports(), loadAircraftConfig(this.opts.aircraft)]);
+    this.airports = airports;
     this.cfg = cfg;
     this.input.flapDetents = cfg.flaps.detents.length;
     this.input.sync({ trim: cfg.controls.takeoffTrim ?? 0 });
-    const airport = findAirport(airports, this.opts.airport);
-    if (!airport) throw new Error(`Aeropuerto ${this.opts.airport} no encontrado`);
-    this.airport = airport;
-    this.runway = this.pickRunway(airport, this.opts.runwayEnd);
-    if (this.opts.localHour !== undefined) this.setLocalSolarTime(this.opts.localHour);
 
     this.aircraft = new AircraftEntity(this.world.scene);
     await this.aircraft.load(`${import.meta.env.BASE_URL}${cfg.model}`);
+    this.aircraft.setupLights(cfg.lights);
     this.probe = new GroundProbe(this.world, airports);
     this.probe.exclude = [this.aircraft.model];
 
-    this.overlay.setLoading(`Midiendo la pista ${this.runway.le.ident}/${this.runway.he.ident} de ${airport.ident}…`);
-    const surface = await this.probe.measureRunway(this.runway);
-    const end = this.startEnd();
-    const lineUp = lineUpPoint(this.runway, end);
-    const height = this.probe.runwayHeightAt(this.runway, lineUp.lat, lineUp.lon) ?? surface.hLe;
-    const fieldElevation = this.runway[end].elevation ?? airport.elevation;
-    // Ondulación del geoide ≈ altura elipsoidal medida − elevación publicada (MSL).
-    const thresholdH = end === 'le' ? surface.hLe : surface.hHe;
-    const geoid = thresholdH - fieldElevation;
-    this.env.geoidOffset = Math.abs(geoid) < 120 ? geoid : 0;
-    this.initial = { lat: lineUp.lat, lon: lineUp.lon, height, headingDeg: lineUp.heading, onGround: true };
+    // Clima y hora
+    if (this.opts.localHour !== undefined) this.weather = { ...this.weather, timeMode: 'fixed', localHour: this.opts.localHour };
+    if (this.opts.weather) this.weather = { ...this.weather, ...this.opts.weather };
+    this.environment = new Environment(this.world, this.weather);
+    this.weatherPanel = new WeatherPanel(this.container, this.weather);
+    this.weatherPanel.onChange = (w, timeChanged) => this.applyWeather(w, timeChanged);
+    this.picker = new AirportPicker(this.container);
+    Object.assign(this.env, toPhysicsEnvironment(this.weather));
 
-    // Cámaras: la torre se ubica al costado del punto medio de la pista.
     this.cameras = new Cameras(this.world.scene, this.aircraft, cfg.geometry.pilotEye);
-    const mid = { lat: (this.runway.le.lat + this.runway.he.lat) / 2, lon: (this.runway.le.lon + this.runway.he.lon) / 2 };
-    const side = ((this.runway.le.heading + 90) * Math.PI) / 180;
-    const offset = Math.max(180, this.runway.width * 4);
-    this.cameras.setTowerLocation(
-      mid.lat + (Math.cos(side) * offset) / 111_320,
-      mid.lon + (Math.sin(side) * offset) / (111_320 * Math.cos((mid.lat * Math.PI) / 180)),
-      height + 30,
-    );
     this.panel = new Panel(this.container, cfg);
     this.hud = new Hud(this.container);
     this.sound.stallWarnAlpha = ((cfg.aero.stallAlphaDeg - 3) * Math.PI) / 180;
@@ -126,32 +122,104 @@ export class FlightSession {
     this.bindAudioUnlock();
 
     this.overlay.setLoading('Iniciando la física…');
+    const start = await this.prepareStart(this.opts.airport, this.opts.runwayEnd);
     await this.physics.init(cfg, this.initial, this.env);
     this.physics.setPaused(true);
-
-    // Posicionamos todo una vez para que los tiles empiecen a cargar en el lugar correcto.
-    const first = this.physics.sample();
-    this.aircraft.update(first, 0);
-    this.cameras.update(first);
+    this.environment.setTime(this.weather, this.airport.lon);
 
     this.world.scene.preUpdate.addEventListener(() => this.frame());
     this.bindVisibility();
-
-    this.overlay.setLoading('Cargando terreno…');
-    await this.waitForTiles(12_000);
-    this.overlay.setLoading(null);
-    this.physics.setPaused(false);
-    this.overlay.notify(`${airport.name} (${airport.ident}) — pista ${this.runway[end].ident}. F10 o ? para ver los controles.`, 6000);
-
+    await this.finishPlacement(start);
     (window as unknown as Record<string, unknown>).__sim = this;
   }
 
-  /** Fija la hora solar local en la posición del aeropuerto (hoy). */
-  setLocalSolarTime(hour: number) {
-    const now = new Date();
-    const utcHours = hour - this.airport.lon / 15;
-    const d = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + utcHours * 3600_000;
-    this.world.viewer.clock.currentTime = Cesium.JulianDate.fromDate(new Date(d));
+  /**
+   * Calcula el punto de partida en una cabecera: mide la pista, estima la ondulación del geoide y
+   * ubica la cámara de torre. No toca la física.
+   */
+  private async prepareStart(ident: string, runwayEnd?: string) {
+    const airport = findAirport(this.airports, ident);
+    if (!airport) throw new Error(`Aeropuerto ${ident} no encontrado`);
+    this.airport = airport;
+    this.runway = this.pickRunway(airport, runwayEnd);
+    const end: 'le' | 'he' = runwayEnd && this.runway.he.ident === runwayEnd ? 'he' : 'le';
+
+    this.overlay.setLoading(`Midiendo la pista ${this.runway[end].ident} de ${airport.ident}…`);
+    const surface = await this.probe.measureRunway(this.runway);
+    const lineUp = lineUpPoint(this.runway, end);
+    const height = this.probe.runwayHeightAt(this.runway, lineUp.lat, lineUp.lon) ?? surface.hLe;
+    const fieldElevation = this.runway[end].elevation ?? airport.elevation;
+    // Ondulación del geoide ≈ altura elipsoidal medida − elevación publicada (MSL).
+    // Sin terreno real (modo sin conexión) el suelo es el elipsoide: la diferencia es toda la elevación.
+    const geoid = (end === 'le' ? surface.hLe : surface.hHe) - fieldElevation;
+    this.env.geoidOffset = !this.world.hasTerrain || Math.abs(geoid) < 120 ? geoid : 0;
+    this.initial = { lat: lineUp.lat, lon: lineUp.lon, height, headingDeg: lineUp.heading, onGround: true };
+
+    // Torre al costado del punto medio de la pista
+    const mid = { lat: (this.runway.le.lat + this.runway.he.lat) / 2, lon: (this.runway.le.lon + this.runway.he.lon) / 2 };
+    const side = ((this.runway.le.heading + 90) * Math.PI) / 180;
+    const offset = Math.max(180, this.runway.width * 4);
+    this.cameras.setTowerLocation(
+      mid.lat + (Math.cos(side) * offset) / 111_320,
+      mid.lon + (Math.sin(side) * offset) / (111_320 * Math.cos((mid.lat * Math.PI) / 180)),
+      height + 30,
+    );
+    return { airport, end };
+  }
+
+  /** Muestra el avión en el nuevo lugar, espera los tiles y libera la física. */
+  private async finishPlacement({ airport, end }: { airport: Airport; end: 'le' | 'he' }) {
+    const first = this.physics.sample();
+    this.aircraft.update(first, 0);
+    this.cameras.update(first);
+    this.overlay.setLoading('Cargando terreno…');
+    await this.waitForTiles(12_000);
+    this.overlay.setLoading(null);
+    this.physics.setPaused(this.paused);
+    this.overlay.notify(`${airport.name} (${airport.ident}) — pista ${this.runway[end].ident}. F10 o ? para ver los controles.`, 6000);
+  }
+
+  /** Traslada el avión a otro aeropuerto/cabecera sin recargar la página. */
+  async relocate(ident: string, runwayEnd?: string) {
+    this.physics.setPaused(true);
+    this.relocating = true;
+    try {
+      const start = await this.prepareStart(ident, runwayEnd);
+      this.physics.setEnvironment({ geoidOffset: this.env.geoidOffset });
+      this.reset();
+      this.physics.setPaused(true);
+      if (this.weather.timeMode === 'fixed') this.environment.setTime(this.weather, this.airport.lon);
+      // Esperamos a que llegue el estado reiniciado antes de posicionar cámaras
+      await new Promise((r) => setTimeout(r, 120));
+      await this.finishPlacement(start);
+    } catch (e) {
+      this.overlay.setLoading(null);
+      this.overlay.notify(`No se pudo trasladar: ${e instanceof Error ? e.message : e}`, 6000);
+      this.physics.setPaused(this.paused);
+    } finally {
+      this.relocating = false;
+    }
+  }
+
+  async openPicker() {
+    if (this.picker.isOpen) return;
+    const s = this.current;
+    const wasPaused = this.paused;
+    if (!wasPaused) this.togglePause();
+    const pick = await this.picker.open(this.airports, s?.lat ?? this.airport.lat, s?.lon ?? this.airport.lon);
+    if (pick) {
+      if (this.paused) this.togglePause();
+      await this.relocate(pick.airport.ident, pick.runwayEnd);
+    } else if (!wasPaused && this.paused) this.togglePause();
+  }
+
+  private applyWeather(w: WeatherSettings, timeChanged: boolean) {
+    this.weather = w;
+    this.environment.apply(w);
+    const env = toPhysicsEnvironment(w);
+    Object.assign(this.env, env);
+    this.physics.setEnvironment(env);
+    if (timeChanged) this.environment.setTime(w, this.current?.lon ?? this.airport.lon);
   }
 
   private pickRunway(a: Airport, endIdent?: string): Runway {
@@ -160,10 +228,6 @@ export class FlightSession {
       if (r) return r;
     }
     return mainRunway(a);
-  }
-
-  private startEnd(): 'le' | 'he' {
-    return this.opts.runwayEnd && this.runway.he.ident === this.opts.runwayEnd ? 'he' : 'le';
   }
 
   private waitForTiles(timeout: number): Promise<void> {
@@ -241,6 +305,9 @@ export class FlightSession {
       if (g) this.physics.setGround(g);
     }
 
+    this.environment.update(s.lat, s.lon, s.altMsl);
+    this.aircraft.navLightsOn = this.environment.sunElevationDeg < 6;
+    this.aircraft.setDaylight(this.environment.daylight);
     const cockpit = this.cameras.mode === 'cockpit';
     this.panel.update(s, this.paused ? 0 : dt);
     const lookNow = this.cameras.lookAngles;
@@ -251,11 +318,12 @@ export class FlightSession {
 
     if (now - this.lastUi > 80) {
       this.lastUi = now;
-      this.overlay.update(s, this.cameras.mode, this.cfg.flaps.detents);
+      this.overlay.update(s, this.cameras.mode, this.cfg.flaps.detents, windText(this.weather));
+      if (this.weatherPanel.visible) this.weatherPanel.showHour(localSolarHour(this.environment.currentDate(), s.lon));
     }
-    if (s.crashed && !this.crashShown) {
+    if (s.crashed && !this.crashShown && !this.relocating) {
       this.crashShown = true;
-      this.overlay.showCrash(s.crashReason);
+      this.overlay.showCrash(s.crashReason, { ias: s.ias, vs: -s.vD, nz: s.nz });
       if (this.cameras.mode === 'cockpit') this.cameras.setMode('orbit');
     }
   }
@@ -283,6 +351,8 @@ export class FlightSession {
       case 'kollsmanUp': this.panel.model.adjustKollsman(1); this.notifyKollsman(); break;
       case 'kollsmanDown': this.panel.model.adjustKollsman(-1); this.notifyKollsman(); break;
       case 'help': this.overlay.toggleHelp(); break;
+      case 'weather': this.weatherPanel.toggle(); break;
+      case 'airports': void this.openPicker(); break;
     }
   }
 

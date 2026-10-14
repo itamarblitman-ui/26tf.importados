@@ -62,7 +62,7 @@ export async function createWorld(container: HTMLElement, opts: GlobeOptions): P
     msaaSamples: 1,
     useBrowserRecommendedResolution: true,
     baseLayer: mode === 'offline' ? offlineImagery() : mode === 'photoreal' ? false : Cesium.ImageryLayer.fromWorldImagery({}),
-    terrain: mode === 'offline' ? undefined : Cesium.Terrain.fromWorldTerrain({ requestWaterMask: false, requestVertexNormals: true }),
+    terrain: mode === 'offline' ? undefined : Cesium.Terrain.fromWorldTerrain({ requestWaterMask: true, requestVertexNormals: true }),
   });
 
   const scene = viewer.scene;
@@ -86,6 +86,18 @@ export async function createWorld(container: HTMLElement, opts: GlobeOptions): P
   scene.camera.frustum instanceof Cesium.PerspectiveFrustum && (scene.camera.frustum.fov = Cesium.Math.toRadians(70));
   // El ciclo de render corre continuo: el avión se mueve siempre.
   scene.requestRenderMode = false;
+
+  // Luces de las ciudades de noche (NASA Black Marble vía Cesium ion): sólo se ven en el lado nocturno.
+  if (mode === 'standard') {
+    Cesium.IonImageryProvider.fromAssetId(3812)
+      .then((p) => {
+        const night = viewer.imageryLayers.addImageryProvider(p);
+        night.dayAlpha = 0;
+        night.nightAlpha = 0.9;
+        night.brightness = 2.2;
+      })
+      .catch((e) => console.warn('Sin capa de luces nocturnas:', e));
+  }
 
   let tileset: Cesium.Cesium3DTileset | null = null;
   const tilesetOptions = {

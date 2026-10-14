@@ -122,6 +122,14 @@ export interface AircraftConfig {
    */
   skidPoints?: Vec3[];
 
+  /** Luces exteriores (ejes cuerpo, m). Opcional. */
+  lights?: {
+    navLeft: Vec3;
+    navRight: Vec3;
+    tail: Vec3;
+    beacon: Vec3;
+  };
+
   limits: {
     /** Velocidad vertical máxima de contacto antes de romper el tren (m/s). */
     maxTouchdownSpeed: number;

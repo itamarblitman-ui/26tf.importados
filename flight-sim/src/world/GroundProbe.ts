@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import type { GroundReport } from '../physics/types';
 import { airportsNear, type Airport, type Runway } from './airports';
 import type { World } from './Globe';
+import { WaterProbe } from './WaterProbe';
 
 const R_EARTH = 6371008.8;
 const toRad = Math.PI / 180;
@@ -31,7 +32,17 @@ export class GroundProbe {
   /** Objetos a excluir de las consultas de altura sobre 3D Tiles (el propio avión). */
   exclude: object[] = [];
 
-  constructor(private world: World, private airports: Airport[]) {}
+  private water: WaterProbe | null = null;
+
+  constructor(private world: World, private airports: Airport[]) {
+    if (world.hasTerrain) this.water = new WaterProbe(world.scene.terrainProvider);
+  }
+
+  /** Marca la superficie como agua si la máscara del terreno lo indica. */
+  private withWater(r: GroundReport | null): GroundReport | null {
+    if (r && r.kind === 'terrain' && this.water?.isWater(r.lat, r.lon)) return { ...r, kind: 'water' };
+    return r;
+  }
 
   /** Mide (asíncrono) las alturas de los umbrales de una pista. */
   async measureRunway(rw: Runway): Promise<RunwaySurface> {
@@ -167,13 +178,13 @@ export class GroundProbe {
     if (!this.world.hasTerrain) {
       return (this.last = { lat, lon, height: 0, normalEnu: [0, 0, 1], kind: 'terrain' });
     }
-    const g = this.sampleGlobe(lat, lon);
+    const g = this.withWater(this.sampleGlobe(lat, lon));
     if (g && this.world.mode !== 'photoreal') return (this.last = g);
 
     this.sampleAsync(lat, lon, agl);
     if (this.asyncResult) {
       const r = this.asyncResult;
-      return (this.last = { lat: r.lat, lon: r.lon, height: r.h, normalEnu: r.normal, kind: 'terrain' });
+      return (this.last = this.withWater({ lat: r.lat, lon: r.lon, height: r.h, normalEnu: r.normal, kind: 'terrain' }));
     }
     return g ?? this.last;
   }
