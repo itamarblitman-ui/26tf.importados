@@ -7,6 +7,7 @@ import { InputManager } from '../input/InputManager';
 import { Panel } from '../instruments/Panel';
 import { Hud } from '../ui/Hud';
 import { AirportPicker } from '../ui/AirportPicker';
+import { AutopilotPanel, type ApCommand } from '../ui/AutopilotPanel';
 import { WeatherPanel } from '../ui/WeatherPanel';
 import { Environment } from '../world/Environment';
 import { localSolarHour } from '../world/sun';
@@ -60,6 +61,10 @@ export class FlightSession {
   picker!: AirportPicker;
   weather: WeatherSettings = defaultWeather();
   private relocating = false;
+  apPanel!: AutopilotPanel;
+  private lastApDisconnects = 0;
+  /** Se llama cuando el usuario pide volver al menú inicial (Esc). */
+  onExitToMenu: (() => void) | null = null;
   panel!: Panel;
   hud!: Hud;
   sound = new EngineSound();
@@ -101,6 +106,7 @@ export class FlightSession {
     this.aircraft = new AircraftEntity(this.world.scene);
     await this.aircraft.load(`${import.meta.env.BASE_URL}${cfg.model}`);
     this.aircraft.setupLights(cfg.lights);
+    this.aircraft.rotations = cfg.engines.map((e) => e.rotation);
     this.probe = new GroundProbe(this.world, airports);
     this.probe.exclude = [this.aircraft.model];
 
@@ -111,6 +117,8 @@ export class FlightSession {
     this.weatherPanel = new WeatherPanel(this.container, this.weather);
     this.weatherPanel.onChange = (w, timeChanged) => this.applyWeather(w, timeChanged);
     this.picker = new AirportPicker(this.container);
+    this.apPanel = new AutopilotPanel(this.container);
+    this.apPanel.onCommand = (c) => this.autopilotCommand(c);
     Object.assign(this.env, toPhysicsEnvironment(this.weather));
 
     this.cameras = new Cameras(this.world.scene, this.aircraft, cfg.geometry.pilotEye);
@@ -276,6 +284,7 @@ export class FlightSession {
     this.physics.reset(this.initial);
     this.input.sync({
       throttle: 0, flapsIndex: 0, trim: this.cfg.controls.takeoffTrim ?? 0, parkingBrake: false, gearDown: true, engineRunning: true,
+      engineOn: [], autopilot: { ...this.input.controls.autopilot, engaged: false, session: this.input.controls.autopilot.session + 1 },
     });
     this.crashShown = false;
     this.overlay.showCrash(null);
@@ -309,6 +318,17 @@ export class FlightSession {
     this.aircraft.navLightsOn = this.environment.sunElevationDeg < 6;
     this.aircraft.setDaylight(this.environment.daylight);
     const cockpit = this.cameras.mode === 'cockpit';
+    const ap = this.input.controls.autopilot;
+    // La física puede desconectar el automático (intervención del piloto, pérdida, tierra)
+    if (s.apDisconnects !== this.lastApDisconnects) {
+      this.lastApDisconnects = s.apDisconnects;
+      if (ap.engaged) {
+        this.input.controls.autopilot = { ...ap, engaged: false };
+        this.sound.apDisconnect();
+        this.overlay.notify('Piloto automático desconectado', 2500);
+      }
+    }
+    this.panel.headingBug = ap.hdgHold ? ap.heading : null;
     this.panel.update(s, this.paused ? 0 : dt);
     const lookNow = this.cameras.lookAngles;
     this.hud.update(s, cockpit, this.cameras.verticalFov, lookNow.yaw, lookNow.pitch,
@@ -319,6 +339,8 @@ export class FlightSession {
     if (now - this.lastUi > 80) {
       this.lastUi = now;
       this.overlay.update(s, this.cameras.mode, this.cfg.flaps.detents, windText(this.weather));
+      this.apPanel.update(this.input.controls.autopilot, s.apEngaged === 1);
+      this.apPanel.bottomOffset = this.panel.layout === 'cockpit' ? this.panel.cockpitHeight : this.panel.layout === 'compact' ? 0 : 0;
       if (this.weatherPanel.visible) this.weatherPanel.showHour(localSolarHour(this.environment.currentDate(), s.lon));
     }
     if (s.crashed && !this.crashShown && !this.relocating) {
@@ -352,8 +374,52 @@ export class FlightSession {
       case 'kollsmanDown': this.panel.model.adjustKollsman(-1); this.notifyKollsman(); break;
       case 'help': this.overlay.toggleHelp(); break;
       case 'weather': this.weatherPanel.toggle(); break;
+      case 'menu':
+        if (this.picker.isOpen) break;
+        if (this.onExitToMenu && confirm('¿Volver al menú inicial? Se pierde el vuelo actual.')) this.onExitToMenu();
+        break;
       case 'airports': void this.openPicker(); break;
+      default:
+        if (a.startsWith('ap:')) this.autopilotCommand(a.slice(3) as ApCommand);
     }
+  }
+
+  /** Comandos del piloto automático (teclado o botones). */
+  autopilotCommand(c: ApCommand) {
+    const s = this.current;
+    const ap = { ...this.input.controls.autopilot };
+    const FT = 0.3048, KT = 0.514444;
+    const capture = () => {
+      if (!s) return;
+      ap.heading = Math.round(((s.heading * 180) / Math.PI + 360) % 360);
+      ap.altitude = Math.round((s.altMsl / FT) / 100) * 100 * FT;
+      ap.speed = Math.round((s.ias / KT) / 5) * 5 * KT;
+    };
+    switch (c) {
+      case 'toggle':
+        if (ap.engaged) { ap.engaged = false; this.sound.apDisconnect(); break; }
+        if (s?.onGround) { this.overlay.notify('El piloto automático sólo se conecta en vuelo', 2500); return; }
+        capture();
+        ap.engaged = true;
+        ap.session++;
+        if (!ap.hdgHold && !ap.altHold) { ap.hdgHold = true; ap.altHold = true; }
+        break;
+      case 'hdg': ap.hdgHold = !ap.hdgHold; if (ap.hdgHold && s && !ap.engaged) capture(); break;
+      case 'alt': ap.altHold = !ap.altHold; if (ap.altHold && s && !ap.engaged) capture(); break;
+      case 'spd':
+        ap.spdHold = !ap.spdHold;
+        if (ap.spdHold && s) ap.speed = Math.round((s.ias / KT) / 5) * 5 * KT;
+        // Al soltar el control de velocidad, el acelerador vuelve a la posición en la que quedó
+        if (!ap.spdHold && s) this.input.controls.throttle = s.throttle;
+        break;
+      case 'hdg+': ap.heading = (ap.heading + 5) % 360; break;
+      case 'hdg-': ap.heading = (ap.heading + 355) % 360; break;
+      case 'alt+': ap.altitude += 100 * FT; break;
+      case 'alt-': ap.altitude = Math.max(0, ap.altitude - 100 * FT); break;
+      case 'spd+': ap.speed += 5 * KT; break;
+      case 'spd-': ap.speed = Math.max(20 * KT, ap.speed - 5 * KT); break;
+    }
+    this.input.controls.autopilot = ap;
   }
 
   private notifyKollsman() {

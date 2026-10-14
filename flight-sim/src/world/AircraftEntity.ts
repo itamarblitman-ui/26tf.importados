@@ -13,7 +13,9 @@ const DEFLECTION = { elevator: 25, aileron: 18, rudder: 22 };
  */
 export class AircraftEntity {
   model!: Cesium.Model;
-  private propAngle = 0;
+  private propAngles = [0, 0];
+  /** Sentido de giro de cada hélice (+1 horario visto desde la cabina). */
+  rotations: number[] = [1, -1];
   private nodes: Record<string, Cesium.ModelNode | undefined> = {};
   private originals: Record<string, Cesium.Matrix4> = {};
   readonly position = new Cesium.Cartesian3();
@@ -64,7 +66,8 @@ export class AircraftEntity {
       // Nuestros glTF siguen la convención estándar: +Y arriba, +Z adelante.
       upAxis: Cesium.Axis.Y,
       forwardAxis: Cesium.Axis.Z,
-      shadows: Cesium.ShadowMode.ENABLED,
+      // Sólo proyecta sombra: recibirla sobre geometría low-poly de doble cara produce "acné" de sombra.
+      shadows: Cesium.ShadowMode.CAST_ONLY,
       minimumPixelSize: 0,
       allowPicking: false,
     });
@@ -73,7 +76,8 @@ export class AircraftEntity {
       if (this.model.ready) return resolve();
       const remove = this.model.readyEvent.addEventListener(() => { remove(); resolve(); });
     });
-    for (const n of ['propeller', 'propdisc', 'aileron_l', 'aileron_r', 'flap_l', 'flap_r', 'elevator', 'rudder']) {
+    for (const n of ['propeller', 'propdisc', 'propeller2', 'propdisc2', 'aileron_l', 'aileron_r', 'flap_l', 'flap_r', 'flap_l2', 'flap_r2',
+      'elevator', 'rudder', 'gear_nose', 'gear_l', 'gear_r']) {
       try {
         const node = this.model.getNode(n);
         this.nodes[n] = node;
@@ -87,6 +91,16 @@ export class AircraftEntity {
     if (!this.model) return;
     this.model.lightColor = new Cesium.Cartesian3(k * 1.1, k * 1.08, k * 1.0);
     this.model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(k, k);
+  }
+
+  private spinProp(node: string, discNode: string, rpm: number, i: number, dt: number, dir: number) {
+    if (!this.nodes[node]) return;
+    const fast = rpm > 450;
+    const rps = rpm / 60;
+    this.propAngles[i] = (this.propAngles[i] + dir * (fast ? 0.7 + rps * 0.004 : rps) * 2 * Math.PI * dt) % (2 * Math.PI);
+    this.setNode(node, Cesium.Matrix3.fromRotationZ(this.propAngles[i]));
+    const disc = this.nodes[discNode];
+    if (disc) disc.show = fast;
   }
 
   set visible(v: boolean) { if (this.model) this.model.show = v; }
@@ -145,12 +159,17 @@ export class AircraftEntity {
     this.setNode('elevator', rotX(s.elevator * DEFLECTION.elevator * DEG));
     this.setNode('rudder', rotY(s.rudder * DEFLECTION.rudder * DEG));
 
-    // Hélice: a RPM altas se ve el disco y las palas giran "estroboscópicamente" lento.
-    const rps = s.rpm0 / 60;
-    const fast = s.rpm0 > 450;
-    this.propAngle = (this.propAngle + (fast ? 0.7 + rps * 0.004 : rps) * 2 * Math.PI * dt) % (2 * Math.PI);
-    this.setNode('propeller', rotZ(this.propAngle));
-    const disc = this.nodes.propdisc;
-    if (disc) disc.show = fast;
+    this.setNode('flap_l2', rotX(-flap));
+    this.setNode('flap_r2', rotX(-flap));
+
+    // Tren retráctil: la rueda de nariz se pliega hacia atrás y las principales hacia adentro.
+    const up = (1 - s.gearExtension) * DEG;
+    this.setNode('gear_nose', rotX(up * 90));
+    this.setNode('gear_l', rotZ(-up * 85));
+    this.setNode('gear_r', rotZ(up * 85));
+
+    // Hélices: a RPM altas se ve el disco y las palas giran "estroboscópicamente" lento.
+    this.spinProp('propeller', 'propdisc', s.rpm0, 0, dt, this.rotations[0] ?? 1);
+    this.spinProp('propeller2', 'propdisc2', s.rpm1, 1, dt, this.rotations[1] ?? -1);
   }
 }

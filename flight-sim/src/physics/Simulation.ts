@@ -7,13 +7,14 @@ import type { GearLegConfig } from './AircraftConfig';
 import { approach, clamp } from './math/table';
 import { add, cross, dot, invert3, mulMat3TVec, mulMat3Vec, scale, sub, type Mat3, type Vec3 } from './math/vec3';
 import { qFromEuler, qFromMat3, qIntegrate, qMul, qRotate, qRotateInv, qToEuler, type Quat } from './math/quat';
-import { engineForceMoment, propellerLoads, steadyOmega, stepEngine, type EngineOutput, type EngineState } from './Propulsion';
+import { engineForceMoment, propellerLoads, steadyState, stepEngine, type EngineOutput, type EngineState } from './Propulsion';
 import { emptySnapshot, type Snapshot } from './snapshot';
 import {
   CrashReason, defaultEnvironment, neutralControls,
   type ControlInputs, type EnvironmentSettings, type GroundReport, type InitialConditions,
 } from './types';
 import { WindModel } from './Wind';
+import { Autopilot } from './Autopilot';
 
 export const PHYSICS_HZ = 120;
 export const PHYSICS_DT = 1 / PHYSICS_HZ;
@@ -67,6 +68,12 @@ export class Simulation {
   crashed: CrashReason = CrashReason.None;
   private last: Loads | null = null;
   private skidLegs: GearLegConfig[];
+  private autopilot = new Autopilot();
+  /** Veces que el piloto automático se desconectó solo (por intervención del piloto, pérdida, etc.) */
+  apDisconnects = 0;
+  private apDeadSession = -1;
+  /** Comandos efectivos de este paso (piloto o piloto automático) */
+  private eff = { elevator: 0, aileron: 0, throttle: 0 };
 
   constructor(cfg: AircraftConfig) {
     this.cfg = cfg;
@@ -110,7 +117,7 @@ export class Simulation {
       this.flapDeg = 0;
       this.gearExtension = 1;
       const rho = isaAtmosphere(ic.height - this.env.geoidOffset, this.env.isaDeltaT).density;
-      this.engines.forEach((e, i) => { e.running = true; e.omega = steadyOmega(this.cfg.engines[i], 0, 0, rho); });
+      this.engines.forEach((e, i) => { e.running = true; Object.assign(e, steadyState(this.cfg.engines[i], 0, 0, rho)); });
     } else {
       const V = ic.airspeed ?? this.cfg.limits.vcruise;
       const trim = trimLevelFlight(this.cfg, V, ic.height - this.env.geoidOffset, this.mass, this.env.isaDeltaT);
@@ -125,7 +132,7 @@ export class Simulation {
       this.elevator = 0; this.aileron = trim.aileron; this.rudder = trim.rudder; this.trim = trim.trim; this.flapDeg = 0;
       this.gearExtension = this.cfg.gear.retractable ? 0 : 1;
       const rho = isaAtmosphere(ic.height - this.env.geoidOffset, this.env.isaDeltaT).density;
-      this.engines.forEach((e, i) => { e.running = true; e.omega = steadyOmega(this.cfg.engines[i], trim.throttle, vBody[0], rho); });
+      this.engines.forEach((e, i) => { e.running = true; Object.assign(e, steadyState(this.cfg.engines[i], trim.throttle, vBody[0], rho)); });
     }
     this.prevAlpha = Math.atan2(this.bodyAirVelocity()[2], this.bodyAirVelocity()[0]);
     this.last = null;
@@ -203,7 +210,7 @@ export class Simulation {
     let propwashQ = 0;
     cfg.engines.forEach((ec, i) => {
       const st = this.engines[i];
-      const loads = propellerLoads(ec, st.omega, vAir[0], air.density);
+      const loads = propellerLoads(ec, st.omega, vAir[0], air.density, st.pitch ?? 1);
       const out: EngineOutput = {
         thrust: loads.thrust, propTorque: loads.torque, engineTorque: 0, shaftPower: 0,
         rpm: (st.omega * 60) / (2 * Math.PI), slipstreamQ: Math.max(0, loads.thrust) / ((Math.PI * ec.propeller.diameter ** 2) / 4),
@@ -263,10 +270,13 @@ export class Simulation {
     const cfg = this.cfg;
     const c = this.controls;
 
+    this.runAutopilot(dt);
+    const eff = this.eff;
+
     // Actuadores
     const sr = cfg.controls.surfaceRate;
-    this.elevator = approach(this.elevator, clamp(c.elevator, -1, 1), sr, dt);
-    this.aileron = approach(this.aileron, clamp(c.aileron, -1, 1), sr, dt);
+    this.elevator = approach(this.elevator, clamp(eff.elevator, -1, 1), sr, dt);
+    this.aileron = approach(this.aileron, clamp(eff.aileron, -1, 1), sr, dt);
     this.rudder = approach(this.rudder, clamp(c.rudder, -1, 1), sr, dt);
     this.trim = approach(this.trim, clamp(c.trim, -1, 1), cfg.controls.trimRate * 4, dt);
     const detents = cfg.flaps.detents;
@@ -277,7 +287,7 @@ export class Simulation {
       const wantDown = c.gearDown || (this.last?.gear.onGround ?? false);
       this.gearExtension = approach(this.gearExtension, wantDown ? 1 : 0, 1 / cfg.gear.transitTime, dt);
     }
-    this.engines.forEach((e) => { e.running = c.engineRunning; });
+    this.engines.forEach((e, i) => { e.running = c.engineRunning && (c.engineOn?.[i] ?? true); });
 
     const L = this.computeLoads(dt, true);
     this.last = L;
@@ -285,7 +295,7 @@ export class Simulation {
     // Motores: integra la velocidad del eje
     const vAir = this.bodyAirVelocity(L.windFrame);
     cfg.engines.forEach((ec, i) => {
-      stepEngine(ec, this.engines[i], c.throttle, vAir[0], L.air.density, dt);
+      stepEngine(ec, this.engines[i], eff.throttle, vAir[0], L.air.density, dt);
     });
 
     // Traslación (Euler semi-implícito)
@@ -308,6 +318,37 @@ export class Simulation {
     this.time += dt;
     this.checkCrash(L);
     if (Math.hypot(this.pos[0], this.pos[1]) > REBASE_DISTANCE) this.rebase();
+  }
+
+  /** Decide los comandos efectivos: los del piloto o, si está conectado, los del piloto automático. */
+  private runAutopilot(dt: number) {
+    const c = this.controls;
+    const ap = c.autopilot;
+    this.eff.elevator = c.elevator;
+    this.eff.aileron = c.aileron;
+    this.eff.throttle = c.throttle;
+    const L = this.last;
+    if (!ap?.engaged || !L || ap.session === this.apDeadSession) { this.autopilot.reset(); return; }
+    // El piloto "le gana" al automático: un mando firme lo desconecta (como un servo que patina).
+    const override = Math.abs(c.elevator) > 0.35 || Math.abs(c.aileron) > 0.35;
+    if (override || L.gear.onGround || L.aero.stalled) {
+      this.apDisconnects++;
+      this.apDeadSession = ap.session;
+      c.autopilot = { ...ap, engaged: false };
+      this.autopilot.reset();
+      return;
+    }
+    const qLocal = qMul(qFromMat3(L.toLocal), this.q);
+    const [yaw, pitch, roll] = qToEuler(qLocal);
+    const vLocal = mulMat3Vec(L.toLocal, this.vel);
+    const out = this.autopilot.update(ap, {
+      dt, heading: yaw, roll, pitch, p: this.omega[0], q: this.omega[1],
+      altitude: L.geo.h - this.env.geoidOffset, verticalSpeed: -vLocal[2],
+      ias: Math.sqrt((2 * L.aero.qbar) / 1.225), qbar: L.aero.qbar, throttle: c.throttle,
+    }, this.elevator);
+    this.eff.elevator = out.elevator;
+    this.eff.aileron = out.aileron;
+    if (out.throttle !== null) this.eff.throttle = out.throttle;
   }
 
   private checkCrash(L: Loads): void {
@@ -391,7 +432,7 @@ export class Simulation {
     out.rpm1 = L.engines[1]?.rpm ?? 0;
     out.thrust = L.engines.reduce((s, e) => s + e.thrust, 0);
     out.power = L.engines.reduce((s, e) => s + e.propTorque * ((e.rpm * Math.PI) / 30), 0);
-    out.throttle = this.controls.throttle;
+    out.throttle = this.eff.throttle;
     out.elevator = this.elevator;
     out.aileron = this.aileron;
     out.rudder = this.rudder;
@@ -418,6 +459,15 @@ export class Simulation {
     out.qnh = this.env.qnh;
     out.cl = L.aero.cl;
     out.qbar = L.aero.qbar;
+    const ap = this.controls.autopilot;
+    out.apEngaged = ap?.engaged && ap.session !== this.apDeadSession ? 1 : 0;
+    out.apHdg = ap?.hdgHold ? 1 : 0;
+    out.apAlt = ap?.altHold ? 1 : 0;
+    out.apSpd = ap?.spdHold ? 1 : 0;
+    out.apHeading = ap?.heading ?? 0;
+    out.apAltitude = ap?.altitude ?? 0;
+    out.apSpeed = ap?.speed ?? 0;
+    out.apDisconnects = this.apDisconnects;
     return out;
   }
 
@@ -491,7 +541,7 @@ export function trimLevelFlight(
     sim.omega = [0, 0, 0];
     sim.elevator = 0; sim.aileron = aileron; sim.rudder = rudder; sim.trim = trim; sim.flapDeg = 0;
     sim.gearExtension = cfg.gear.retractable ? 0 : 1;
-    cfg.engines.forEach((ec, i) => { sim.engines[i].omega = steadyOmega(ec, throttle, vBody[0], rho); });
+    cfg.engines.forEach((ec, i) => { Object.assign(sim.engines[i], steadyState(ec, throttle, vBody[0], rho)); });
     const L = sim['computeLoads'](0, false) as Loads;
     const fb = qRotateInv(sim.q, L.forceFrame);
     const m = L.momentBody;

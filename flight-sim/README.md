@@ -16,16 +16,19 @@ cp .env.example .env      # y completá las claves (ver abajo)
 npm run dev               # http://localhost:5173
 ```
 
+Al abrir la página aparece el **menú inicial**: aeronave, aeropuerto y cabecera (con mapa), hora,
+clima, escenario y cámara. **Esc** en vuelo vuelve al menú.
+
 Sin claves el simulador igual arranca en **modo sin conexión**: globo con imagen satelital de baja
 resolución incluida en Cesium, sin relieve ni edificios. Sirve para probar la física.
 
-### Parámetros por URL (hasta que llegue el menú de la fase 4)
+### Parámetros por URL (saltean el menú)
 
 | Parámetro  | Ejemplo                       | Descripción                                          |
 |------------|-------------------------------|------------------------------------------------------|
 | `airport`  | `SABE`, `SAEZ`, `AEP`         | Código OACI o IATA (base OurAirports)                |
 | `runway`   | `13`                          | Cabecera de inicio                                   |
-| `aircraft` | `hornero-h160`                | Archivo en `public/aircraft/`                        |
+| `aircraft` | `hornero-h160`, `chaja-t300`  | Archivo en `public/aircraft/`                        |
 | `scenery`  | `standard` · `photoreal` · `offline` | Terreno + satélite + edificios OSM · Google 3D Tiles · sin red |
 | `camera`   | `orbit` · `cockpit` · `tower` | Cámara inicial                                       |
 | `hora`     | `17:30`                       | Hora solar local (por defecto, la hora real)         |
@@ -88,6 +91,21 @@ Las *Photorealistic 3D Tiles* de Google se pueden usar de dos formas:
 | O | Sonido on/off (se activa con la primera tecla o clic) |
 | T | Panel de hora y clima |
 | A | Elegir aeropuerto y cabecera en el mapa |
+| Shift + M | Falla / reposición del motor derecho (bimotor) |
+| Esc | Volver al menú inicial |
+
+**Piloto automático**
+
+| Tecla | Acción |
+|---|---|
+| F5 | Conectar / desconectar (toma el rumbo, la altitud y la velocidad actuales) |
+| F6 · F7 · F8 | Modo rumbo (HDG) · altitud (ALT) · velocidad con acelerador automático (SPD) |
+| Ctrl + ← / → | Rumbo seleccionado ∓5° |
+| Ctrl + ↑ / ↓ | Altitud seleccionada ±100 ft |
+| Ctrl + Shift + ↑ / ↓ | Velocidad seleccionada ±5 kt |
+
+También se maneja con los botones del recuadro AP. Mover la palanca con firmeza, entrar en pérdida o
+tocar tierra lo desconecta (con aviso sonoro).
 | P · R · F10/? | Pausa · reiniciar · ayuda |
 
 **Joystick / gamepad** (Gamepad API, se detecta solo al tocar un botón): stick izquierdo =
@@ -114,6 +132,7 @@ flight-sim/
 │  │  ├─ LandingGear.ts     resorte-amortiguador por pata, fricción, frenos diferenciales, rueda de nariz
 │  │  ├─ Atmosphere.ts      ISA hasta 20 km, ISA+ΔT
 │  │  ├─ Wind.ts            viento medio + ráfagas + turbulencia tipo Dryden (determinista)
+│  │  ├─ Autopilot.ts       PID en cascada: rumbo, altitud/V-S y velocidad (corre a 120 Hz en el worker)
 │  │  ├─ geodesy.ts         WGS84, ECEF, marcos NED
 │  │  ├─ snapshot.ts        layout binario del estado (Float64Array transferible)
 │  │  └─ worker.ts          bucle de paso fijo con acumulador
@@ -179,7 +198,9 @@ recuperación, tren de aterrizaje (reposo estable, carrera de despegue, frenado,
 nariz, roce de cola, aterrizaje duro) e instrumentos (altímetro y ventanilla de Kollsman, retardo del
 variómetro, bola del coordinador, giróscopos sin vacío), clima (dirección del viento, capa límite,
 ráfagas, deriva con viento cruzado, efecto de la temperatura en el despegue, amerizaje), posición del
-sol y campo de nubes determinista.
+sol y campo de nubes determinista, piloto automático (mantiene altitud ante perturbaciones, vira al
+rumbo, asciende y captura altitud, controla velocidad, se desconecta con la intervención del piloto) y
+bimotor.
 
 ## Instrumentos y sonido
 
@@ -196,6 +217,24 @@ sol y campo de nubes determinista.
   paso de pala de la hélice, viento según la velocidad, rodadura en pista y bocina de pérdida
   (suena ~3° antes del ángulo crítico). En cabina el sonido llega filtrado; afuera se atenúa con la
   distancia.
+
+## Aeronaves
+
+| | Hornero H-160 | Chajá T-300 |
+|---|---|---|
+| Tipo | Monomotor de entrenamiento, ala alta | Bimotor, ala baja |
+| Motor | 1 × 160 hp, hélice de paso fijo | 2 × 300 hp contrarrotativos, hélices de velocidad constante |
+| Tren | Fijo triciclo | Retráctil (G) |
+| Velocidades | Vr 54 kt · crucero ~110 kt | Vr 87 kt · crucero ~165 kt |
+
+Las dos usan **exactamente el mismo código de física**: todo lo que cambia está en
+`public/aircraft/<id>.json` (masas e inercias, curvas CL/CD, derivadas de estabilidad, motores con su
+posición y sentido de giro, regulador de paso, tren, puntos de choque, luces, límites). Para agregar
+un avión: copiar un JSON, ajustarlo, agregarlo a `public/aircraft/index.json` y, si querés modelo
+propio, una función en `scripts/build-models.ts` con los nodos animables (`propeller`, `propeller2`,
+`aileron_l/r`, `flap_l/r`, `elevator`, `rudder`, `gear_nose`, `gear_l/r`). Los tests del bimotor
+(`tests/physics/twin.test.ts`) verifican que con el JSON alcanza: trimado, crucero con RPM
+reguladas, despegue, tren retráctil y vuelo con un motor detenido.
 
 ## Regenerar datos y modelos
 
@@ -216,4 +255,4 @@ npm run build:airports   # descarga OurAirports y genera public/data/airports.js
 - [x] **Fase 1** — núcleo jugable: globo, pista real, avioneta propia, física 6DOF, controles, cámaras.
 - [x] **Fase 2** — seis instrumentos básicos + tacómetro en Canvas, HUD conforme, sonido sintetizado.
 - [x] **Fase 3** — hora del día con sol y sombras, clima (viento, ráfagas, turbulencia, nubes, niebla), selector de aeropuertos en mapa, agua y pantalla de accidente.
-- [ ] Fase 4 — piloto automático, menú, bimotor.
+- [x] **Fase 4** — piloto automático (rumbo, altitud, velocidad), menú inicial, bimotor Chajá T-300 definido sólo por JSON.

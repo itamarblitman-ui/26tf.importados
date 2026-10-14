@@ -118,6 +118,21 @@ export class EngineSound {
     return buf;
   }
 
+  /** Aviso de desconexión del piloto automático (dos tonos). */
+  apDisconnect() {
+    if (!this.ctx || this.ctx.state !== 'running' || this.muted) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    for (const [i, f] of [[0, 880], [1, 660], [2, 880], [3, 660]] as const) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + i * 0.18);
+      g.gain.linearRampToValueAtTime(0.12, t + i * 0.18 + 0.01);
+      g.gain.linearRampToValueAtTime(0, t + i * 0.18 + 0.16);
+      o.connect(g); g.connect(this.master);
+      o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.2);
+    }
+  }
+
   setMuted(m: boolean) {
     this.muted = m;
     if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : this.volume, this.ctx.currentTime, 0.05);

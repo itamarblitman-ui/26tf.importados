@@ -4,7 +4,8 @@ import { Keyboard } from './Keyboard';
 
 export type AppAction =
   | 'camera' | 'cameraCockpit' | 'cameraOrbit' | 'cameraTower' | 'pause' | 'reset' | 'hud' | 'help'
-  | 'panel' | 'strip' | 'sound' | 'kollsmanUp' | 'kollsmanDown' | 'weather' | 'airports'
+  | 'panel' | 'strip' | 'sound' | 'kollsmanUp' | 'kollsmanDown' | 'weather' | 'airports' | 'menu'
+  | 'ap:toggle' | 'ap:hdg' | 'ap:alt' | 'ap:spd' | 'ap:hdg+' | 'ap:hdg-' | 'ap:alt+' | 'ap:alt-' | 'ap:spd+' | 'ap:spd-'
   | 'lookUp' | 'lookDown' | 'lookLeft' | 'lookRight';
 
 const approach = (v: number, target: number, rate: number, dt: number) => {
@@ -31,7 +32,7 @@ export class InputManager {
     const k = this.keyboard;
     const c = this.controls;
     const actions: AppAction[] = [];
-    const shift = k.anyDown('ShiftLeft', 'ShiftRight');
+    const shift = k.anyDown('ShiftLeft', 'ShiftRight') || k.anyDown('ControlLeft', 'ControlRight');
 
     // ── Ejes de teclado con rampa
     const axis = (neg: boolean, pos: boolean) => (pos && !neg ? 1 : neg && !pos ? -1 : 0);
@@ -50,8 +51,9 @@ export class InputManager {
     c.rudder = clamp(this.kb.rudder + gp.rudder, -1, 1);
 
     // ── Acelerador
-    if (k.anyDown('F2', 'PageDown', 'Minus', 'NumpadSubtract')) c.throttle -= 0.5 * dt;
-    if (k.anyDown('F3', 'PageUp', 'Equal', 'NumpadAdd')) c.throttle += 0.5 * dt;
+    const ctrl = k.anyDown('ControlLeft', 'ControlRight');
+    if (!ctrl && k.anyDown('F2', 'PageDown', 'Minus', 'NumpadSubtract')) c.throttle -= 0.5 * dt;
+    if (!ctrl && k.anyDown('F3', 'PageUp', 'Equal', 'NumpadAdd')) c.throttle += 0.5 * dt;
     c.throttle += gp.throttleRate * dt;
     if (gp.throttleAbs !== null) {
       if (this.lastThrottleAbs === null || Math.abs(gp.throttleAbs - this.lastThrottleAbs) > 0.01) {
@@ -72,10 +74,11 @@ export class InputManager {
     // ── Mirar alrededor (Shift + flechas o pad direccional)
     const look = { yaw: 0, pitch: 0 };
     const lookRate = 1.6 * dt;
-    if (shift && k.isDown('ArrowLeft')) look.yaw -= lookRate;
-    if (shift && k.isDown('ArrowRight')) look.yaw += lookRate;
-    if (shift && k.isDown('ArrowUp')) look.pitch += lookRate;
-    if (shift && k.isDown('ArrowDown')) look.pitch -= lookRate;
+    const lookKeys = shift && !ctrl;
+    if (lookKeys && k.isDown('ArrowLeft')) look.yaw -= lookRate;
+    if (lookKeys && k.isDown('ArrowRight')) look.yaw += lookRate;
+    if (lookKeys && k.isDown('ArrowUp')) look.pitch += lookRate;
+    if (lookKeys && k.isDown('ArrowDown')) look.pitch -= lookRate;
 
     // ── Acciones discretas
     for (const p of k.consumePressed()) {
@@ -87,6 +90,13 @@ export class InputManager {
         case 'KeyG': c.gearDown = !c.gearDown; break;
         case 'Shift+KeyB': c.parkingBrake = !c.parkingBrake; break;
         case 'KeyM': c.engineRunning = !c.engineRunning; break;
+        case 'Shift+KeyM': {
+          // Falla / reposición del motor derecho (práctica de vuelo asimétrico en bimotores)
+          const on = c.engineOn.length ? [...c.engineOn] : [true, true];
+          on[1] = !on[1];
+          c.engineOn = on;
+          break;
+        }
         case 'KeyC': actions.push('camera'); break;
         case 'Digit1': actions.push('cameraCockpit'); break;
         case 'Digit2': actions.push('cameraOrbit'); break;
@@ -97,6 +107,17 @@ export class InputManager {
         case 'Shift+KeyH': actions.push('strip'); break;
         case 'KeyI': actions.push('panel'); break;
         case 'KeyT': actions.push('weather'); break;
+        case 'Escape': actions.push('menu'); break;
+        case 'F5': actions.push('ap:toggle'); break;
+        case 'F6': actions.push('ap:hdg'); break;
+        case 'F7': actions.push('ap:alt'); break;
+        case 'F8': actions.push('ap:spd'); break;
+        case 'Ctrl+ArrowRight': actions.push('ap:hdg+'); break;
+        case 'Ctrl+ArrowLeft': actions.push('ap:hdg-'); break;
+        case 'Ctrl+ArrowUp': actions.push('ap:alt+'); break;
+        case 'Ctrl+ArrowDown': actions.push('ap:alt-'); break;
+        case 'Ctrl+Shift+ArrowUp': actions.push('ap:spd+'); break;
+        case 'Ctrl+Shift+ArrowDown': actions.push('ap:spd-'); break;
         case 'KeyA': actions.push('airports'); break;
         case 'KeyO': actions.push('sound'); break;
         case 'BracketRight': actions.push('kollsmanUp'); break;

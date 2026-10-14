@@ -173,6 +173,11 @@ export interface EngineConfig {
     ct: Table1D;
     /** Coeficiente de potencia vs J */
     cp: Table1D;
+    /**
+     * Hélice de velocidad constante: el regulador cambia el paso para mantener las RPM.
+     * El paso escala las curvas: Ct(J/p)·p y Cp(J/p)·p² (la curva de rendimiento se corre a J altos).
+     */
+    governor?: { rpm: number; minPitch: number; maxPitch: number };
   };
 }
 

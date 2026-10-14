@@ -24,6 +24,8 @@ export const FIELDS = [
   // Ambiente
   'windN', 'windE', 'windD', 'staticPressure', 'oat', 'density', 'qnh',
   'cl', 'qbar',
+  // Piloto automático
+  'apEngaged', 'apHdg', 'apAlt', 'apSpd', 'apHeading', 'apAltitude', 'apSpeed', 'apDisconnects',
 ] as const;
 
 export type SnapshotField = (typeof FIELDS)[number];

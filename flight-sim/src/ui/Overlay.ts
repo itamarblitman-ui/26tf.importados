@@ -38,6 +38,15 @@ export const HELP_HTML = `
 <tr><td>O</td><td>Sonido on/off</td></tr>
 <tr><td>T</td><td>Hora y clima</td></tr>
 <tr><td>A</td><td>Elegir aeropuerto en el mapa</td></tr>
+<tr><td>Shift + M</td><td>Falla / reposición del motor derecho (bimotor)</td></tr>
+<tr><td>Esc</td><td>Volver al menú inicial</td></tr>
+<tr><th colspan="2">Piloto automático</th></tr>
+<tr><td>F5</td><td>Conectar / desconectar (toma rumbo, altitud y velocidad actuales)</td></tr>
+<tr><td>F6 · F7 · F8</td><td>Modo rumbo · altitud · velocidad (acelerador automático)</td></tr>
+<tr><td>Ctrl + ← / →</td><td>Rumbo seleccionado ∓5°</td></tr>
+<tr><td>Ctrl + ↑ / ↓</td><td>Altitud seleccionada ±100 ft</td></tr>
+<tr><td>Ctrl + Shift + ↑ / ↓</td><td>Velocidad seleccionada ±5 kt</td></tr>
+<tr><td colspan="2" class="hint">Mover la palanca con firmeza lo desconecta.</td></tr>
 <tr><td>F10 o ?</td><td>Esta ayuda</td></tr>
 <tr><th colspan="2">Joystick / gamepad</th></tr>
 <tr><td>Stick izq.</td><td>Alabeo y cabeceo</td></tr>

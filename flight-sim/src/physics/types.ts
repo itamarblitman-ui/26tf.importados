@@ -1,3 +1,5 @@
+import { defaultAutopilot, type AutopilotSettings } from './Autopilot';
+
 /** Comandos del piloto que recibe la física (ya fusionados teclado + joystick + piloto automático). */
 export interface ControlInputs {
   /** -1..1, + tirar (nariz arriba) */
@@ -18,11 +20,14 @@ export interface ControlInputs {
   brakeRight: number;
   parkingBrake: boolean;
   engineRunning: boolean;
+  /** Encendido individual de cada motor (además del general). Vacío = todos encendidos. */
+  engineOn: boolean[];
+  autopilot: AutopilotSettings;
 }
 
 export const neutralControls = (): ControlInputs => ({
   elevator: 0, aileron: 0, rudder: 0, throttle: 0, trim: 0, flapsIndex: 0, gearDown: true,
-  brakeLeft: 0, brakeRight: 0, parkingBrake: false, engineRunning: true,
+  brakeLeft: 0, brakeRight: 0, parkingBrake: false, engineRunning: true, engineOn: [], autopilot: defaultAutopilot(),
 });
 
 /** Muestra del terreno que el hilo de render le pasa a la física. */

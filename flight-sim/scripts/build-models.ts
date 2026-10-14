@@ -194,8 +194,118 @@ function hornero(): NodeDef {
   };
 }
 
+
+/** Superficie de control con charnela inclinada (alas trapezoidales con diedro). */
+function taperedSurface(mb: MeshBuilder, mat: string, y0: number, y1: number, hinge0: number, hinge1: number,
+  z0: number, z1: number, chord0: number, chord1: number, t: number, pivot: V3) {
+  const sec = (y: number, h: number, z: number, c: number): V3[] => [[h, y, z - t / 2], [h - c, y, z], [h, y, z + t / 2]];
+  const a = sec(y0, hinge0, z0, chord0), b = sec(y1, hinge1, z1, chord1);
+  mb.bridge(mat, a, b); mb.cap(mat, a); mb.cap(mat, b);
+  void pivot;
+}
+
+/** Bimotor de ala baja "Chajá T-300". */
+function chaja(): NodeDef {
+  const body = new MeshBuilder();
+  loft(body, 'white', [
+    [3.35, 0.3, 0.32, -0.05], [3.05, 0.8, 0.78, -0.06], [2.4, 1.12, 1.1, -0.12], [1.7, 1.26, 1.34, -0.2],
+    [-1.8, 1.26, 1.32, -0.2], [-3.0, 0.98, 1.02, -0.26], [-5.0, 0.56, 0.62, -0.32], [-6.65, 0.22, 0.4, -0.42],
+  ]);
+  for (const side of [-1, 1]) {
+    body.quad('glass', [1.6, side * 0.635, -0.75], [-0.6, side * 0.635, -0.75], [-0.6, side * 0.635, -0.36], [1.6, side * 0.635, -0.36]);
+    body.quad('glass', [-0.8, side * 0.63, -0.72], [-1.7, side * 0.6, -0.68], [-1.7, side * 0.6, -0.4], [-0.8, side * 0.63, -0.4]);
+    body.quad('terracota', [3.0, side * 0.41, -0.02], [-5.0, side * 0.29, -0.25], [-5.0, side * 0.29, -0.18], [3.0, side * 0.41, 0.06]);
+    body.quad('celeste', [2.9, side * 0.43, 0.08], [-4.8, side * 0.3, -0.13], [-4.8, side * 0.3, -0.06], [2.9, side * 0.43, 0.16]);
+  }
+  body.quad('glass', [2.35, -0.52, -0.55], [2.35, 0.52, -0.55], [1.7, 0.58, -0.85], [1.7, -0.58, -0.85]);
+
+  // Ala baja con diedro de 6°
+  const dihedral = Math.tan(6 * Math.PI / 180);
+  const wz = (y: number) => 0.35 - (Math.abs(y) - 0.6) * dihedral;
+  const le = (y: number) => 0.75 - (Math.abs(y) - 0.6) * (0.3 / 5.2);
+  const hingeX = (y: number) => -0.75 + (Math.abs(y) - 0.6) * (0.3 / 5.2);
+  for (const s of [-1, 1]) {
+    panel(body, 'white', s * 0.6, s * 5.8, le(0.6), le(0.6) - hingeX(0.6), le(5.8), le(5.8) - hingeX(5.8), wz(0.6), wz(5.8), 0.24, 0.12);
+    panel(body, 'terracota', s * 5.8, s * 5.9, le(5.8), 0.85, le(5.8) - 0.02, 0.78, wz(5.8), wz(5.9), 0.12, 0.06);
+    // Góndola del motor
+    const ny = s * 2.35;
+    const rings = ([[2.08, 0.28, 0.28, -0.05], [1.9, 0.66, 0.66, -0.05], [1.0, 0.74, 0.78, 0.02], [-0.6, 0.52, 0.52, 0.12], [-1.5, 0.12, 0.14, 0.2]] as [number, number, number, number][])
+      .map(([x, w, h, zc]) => octSection(x, w, h, zc).map(([px, py, pz]) => [px, py + ny, pz] as V3));
+    for (let i = 0; i < rings.length - 1; i++) body.bridge('white', rings[i], rings[i + 1]);
+    body.cap('white', rings[0]); body.cap('white', rings[rings.length - 1]);
+    body.quad('celeste', [1.9, ny + s * 0.335, -0.1], [-0.5, ny + s * 0.26, 0.04], [-0.5, ny + s * 0.26, 0.12], [1.9, ny + s * 0.335, 0.0]);
+  }
+  // Estabilizador horizontal y deriva
+  for (const s of [-1, 1]) panel(body, 'white', s * 0.15, s * 2.1, -5.55, 0.75, -5.75, 0.5, -0.35, -0.35, 0.1, 0.07);
+  {
+    const t = 0.06;
+    const prof = (y: number): V3[] => [[-5.0, y, -0.6], [-6.0, y, -2.1], [-6.4, y, -2.1], [-6.45, y, -0.55]];
+    const a = prof(-t), b = prof(t);
+    body.bridge('white', a, b); body.cap('white', a); body.cap('white', b);
+    body.box('terracota', [-6.2, 0, -2.05], [0.4, 0.13, 0.12]);
+  }
+
+  const surf = (name: string, mat: string, y0: number, y1: number, chord: number, t: number): NodeDef => {
+    const m = new MeshBuilder();
+    const ym = (y0 + y1) / 2;
+    const pivot: V3 = [hingeX(ym), ym, wz(ym)];
+    taperedSurface(m, mat, y0, y1, hingeX(y0), hingeX(y1), wz(y0), wz(y1), chord, chord * 0.85, t, pivot);
+    return { name, pivot, mesh: m };
+  };
+  const elev = new MeshBuilder();
+  for (const s of [-1, 1]) controlSurface(elev, 'white', s * 0.12, s * 2.1, -6.2, 0.4, -0.35, 0.06);
+  const rud = new MeshBuilder();
+  {
+    const sec = (z: number): V3[] => [[-6.45, -0.05, z], [-6.9, 0, z], [-6.45, 0.05, z]];
+    const a = sec(-0.5), b = sec(-2.05);
+    rud.bridge('white', a, b); rud.cap('white', a); rud.cap('white', b);
+  }
+
+  // Hélices tripala (una por motor) y discos
+  const propX = 2.12, propZ = -0.05;
+  const prop = (y: number, dir: number) => {
+    const m = new MeshBuilder();
+    m.cylinder('white', [propX - 0.05, y, propZ], [propX + 0.32, y, propZ], 0.17, 0.0, 12, true);
+    for (let k = 0; k < 3; k++) {
+      const a = (k * 2 * Math.PI) / 3;
+      const dirv = (r: number): V3 => [propX, y + Math.cos(a) * r, propZ + Math.sin(a) * r];
+      const off = (v: V3, d: number): V3 => [v[0] + d * 0.02 * dir, v[1] - Math.sin(a) * d * 0.05, v[2] + Math.cos(a) * d * 0.05];
+      m.quad('dark', off(dirv(0.15), 1), off(dirv(0.99), 0.6), off(dirv(0.99), -0.6), off(dirv(0.15), -1));
+    }
+    return m;
+  };
+  const disc = (y: number) => { const m = new MeshBuilder(); m.cylinder('disc', [propX - 0.01, y, propZ], [propX + 0.01, y, propZ], 0.99, 0.99, 28, true); return m; };
+
+  // Tren retráctil (cada pata es un nodo con pivote en su articulación)
+  const leg = (pivot: V3, wheelZ: number, r: number, wheelW: number) => {
+    const m = new MeshBuilder();
+    m.cylinder('metal', pivot, [pivot[0], pivot[1], wheelZ], 0.05, 0.045, 6);
+    m.cylinder('tire', [pivot[0], pivot[1] - wheelW / 2, wheelZ], [pivot[0], pivot[1] + wheelW / 2, wheelZ], r, r, 14);
+    return m;
+  };
+
+  return {
+    name: 'chaja',
+    children: [
+      { name: 'body', mesh: body },
+      surf('flap_l', 'white', -0.7, -1.9, 0.38, 0.08), surf('flap_r', 'white', 0.7, 1.9, 0.38, 0.08),
+      surf('flap_l2', 'white', -2.85, -3.95, 0.36, 0.07), surf('flap_r2', 'white', 2.85, 3.95, 0.36, 0.07),
+      surf('aileron_l', 'white', -4.05, -5.7, 0.33, 0.06), surf('aileron_r', 'white', 4.05, 5.7, 0.33, 0.06),
+      { name: 'elevator', pivot: [-6.2, 0, -0.35], mesh: elev },
+      { name: 'rudder', pivot: [-6.45, 0, -1.3], mesh: rud },
+      { name: 'propeller', pivot: [propX, -2.35, propZ], mesh: prop(-2.35, 1) },
+      { name: 'propeller2', pivot: [propX, 2.35, propZ], mesh: prop(2.35, -1) },
+      { name: 'propdisc', pivot: [propX, -2.35, propZ], mesh: disc(-2.35) },
+      { name: 'propdisc2', pivot: [propX, 2.35, propZ], mesh: disc(2.35) },
+      { name: 'gear_nose', pivot: [2.2, 0, 0.45], mesh: leg([2.2, 0, 0.45], 1.1, 0.2, 0.14) },
+      { name: 'gear_l', pivot: [-0.3, -1.75, 0.38], mesh: leg([-0.3, -1.75, 0.38], 1.05, 0.25, 0.18) },
+      { name: 'gear_r', pivot: [-0.3, 1.75, 0.38], mesh: leg([-0.3, 1.75, 0.38], 1.05, 0.25, 0.18) },
+    ],
+  };
+}
+
 mkdirSync(OUT, { recursive: true });
-const models: Record<string, () => NodeDef> = { 'hornero-h160': hornero };
+const models: Record<string, () => NodeDef> = { 'hornero-h160': hornero, 'chaja-t300': chaja };
 for (const [id, make] of Object.entries(models)) {
   const glb = buildGlb(make(), materials);
   writeFileSync(resolve(OUT, `${id}.glb`), glb);
