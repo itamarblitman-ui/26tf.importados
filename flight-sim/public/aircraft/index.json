@@ -1,0 +1,4 @@
+[
+  { "id": "hornero-h160", "name": "Hornero H-160", "kind": "Monomotor de entrenamiento", "description": "Ala alta, tren fijo, 160 hp. Dócil y estable: ideal para aprender." },
+  { "id": "chaja-t300", "name": "Chajá T-300", "kind": "Bimotor", "description": "Ala baja, 2 × 300 hp, hélices de velocidad constante y tren retráctil. Más rápido y exigente." }
+]

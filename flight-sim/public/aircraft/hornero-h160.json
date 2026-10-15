@@ -1,0 +1,113 @@
+{
+  "id": "hornero-h160",
+  "name": "Hornero H-160",
+  "description": "Monomotor de ala alta, tren fijo triciclo, 160 hp. Diseño genérico de entrenamiento.",
+  "model": "models/hornero-h160.glb",
+  "mass": {
+    "empty": 760,
+    "default": 1050,
+    "inertia": { "ixx": 1285, "iyy": 1825, "izz": 2667, "ixz": 0 }
+  },
+  "geometry": {
+    "wingArea": 16.2,
+    "span": 11.0,
+    "chord": 1.5,
+    "oswald": 0.75,
+    "pilotEye": [0.35, -0.3, -0.85]
+  },
+  "aero": {
+    "clAlpha": [
+      [-20, -0.75], [-16, -0.95], [-14, -1.0], [-10, -0.59], [-5, -0.14],
+      [0, 0.31], [5, 0.76], [10, 1.21], [14, 1.5], [16, 1.58],
+      [18, 1.4], [20, 1.2], [25, 1.05], [30, 0.95]
+    ],
+    "cdSeparation": [
+      [0, 0], [12, 0], [14, 0.01], [16, 0.04], [18, 0.1], [20, 0.16], [25, 0.24], [30, 0.27]
+    ],
+    "stallAlphaDeg": 16,
+    "cd0": 0.027,
+    "clQ": 3.9,
+    "clElevator": 0.19,
+    "cyBeta": -0.31,
+    "cyRudder": -0.05,
+    "cm0": -0.015,
+    "cmAlpha": -0.89,
+    "cmQ": -16,
+    "cmAlphaDot": -7,
+    "cmElevator": 0.32,
+    "cmTrim": 0.22,
+    "cmFlaps": -0.02,
+    "cmStallBreak": 0.12,
+    "cl0": 0.00025,
+    "cn0": 0.0002,
+    "clBeta": -0.1,
+    "clP": -0.47,
+    "clR": 0.096,
+    "clAileron": 0.065,
+    "clRudder": -0.003,
+    "cnBeta": 0.065,
+    "cnP": -0.03,
+    "cnR": -0.099,
+    "cnAileron": -0.012,
+    "cnRudder": 0.022,
+    "propwashOnTail": 0.3
+  },
+  "flaps": {
+    "detents": [0, 10, 20, 30],
+    "maxDeg": 30,
+    "rate": 4,
+    "deltaCl": 0.65,
+    "deltaCd": 0.05,
+    "vfe": 43.7
+  },
+  "controls": { "surfaceRate": 4, "trimRate": 0.25, "takeoffTrim": 0.3 },
+  "engines": [
+    {
+      "position": [2.25, 0, -0.15],
+      "maxPowerW": 119000,
+      "maxRpm": 2700,
+      "idleTorqueFraction": 0.12,
+      "inertia": 2.5,
+      "frictionC0": 6,
+      "frictionC1": 0.06,
+      "rotation": 1,
+      "torqueFactor": 0.35,
+      "propeller": {
+        "diameter": 1.9,
+        "ct": [[0, 0.1], [0.2, 0.0957], [0.4, 0.081], [0.6, 0.061], [0.7, 0.0492], [0.8, 0.036], [0.9, 0.0218], [1.0, 0.009], [1.2, -0.03]],
+        "cp": [[0, 0.06], [0.2, 0.058], [0.4, 0.054], [0.6, 0.047], [0.7, 0.042], [0.8, 0.036], [0.9, 0.028], [1.0, 0.018], [1.2, -0.005]]
+      }
+    }
+  ],
+  "gear": {
+    "retractable": false,
+    "transitTime": 6,
+    "deltaCd": 0,
+    "steeringDeg": 30,
+    "legs": [
+      { "name": "nariz", "position": [1.5, 0, 1.15], "stiffness": 35000, "damping": 3000, "maxCompression": 0.2, "steerable": true, "braked": false, "side": 0 },
+      { "name": "principal izq", "position": [-0.5, -1.25, 1.15], "stiffness": 55000, "damping": 4600, "maxCompression": 0.2, "steerable": false, "braked": true, "side": -1 },
+      { "name": "principal der", "position": [-0.5, 1.25, 1.15], "stiffness": 55000, "damping": 4600, "maxCompression": 0.2, "steerable": false, "braked": true, "side": 1 }
+    ]
+  },
+  "crashPoints": [
+    [2.25, 0, 0.8], [1.9, 0, 0.55], [0, 0, 0.62], [-0.1, -2.7, -0.86], [-0.1, 2.7, -0.86]
+  ],
+  "skidPoints": [
+    [-4.6, 0, 0.25], [-5.4, 0, -0.2], [-0.1, -5.5, -0.85], [-0.1, 5.5, -0.85],
+    [-4.9, -1.7, -0.05], [-4.9, 1.7, -0.05]
+  ],
+  "lights": {
+    "navLeft": [-0.1, -5.62, -0.95],
+    "navRight": [-0.1, 5.62, -0.95],
+    "tail": [-5.58, 0, -0.5],
+    "beacon": [-5.0, 0, -1.92]
+  },
+  "limits": {
+    "maxTouchdownSpeed": 3.5,
+    "vne": 84,
+    "vs": 25,
+    "vr": 28,
+    "vcruise": 55
+  }
+}
